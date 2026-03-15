@@ -1,0 +1,18 @@
+{
+  "bounds": {
+    "north": 40.758,
+    "south": 40.748,
+    "east": -73.98,
+    "west": -73.995
+  },
+  "secrets": {
+    "provider": "Local",
+    "environmentVariableName": "GoogleMaps__ApiKey"
+  },
+  "searches": [
+    {
+      "query": "Starbucks",
+      "category": "coffee"
+    }
+  ]
+}
