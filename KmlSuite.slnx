@@ -3,6 +3,7 @@
   <Project Path="KmlGenerator.Console/KmlGenerator.Console.csproj" />
   <Project Path="KmlGenerator.Core/KmlGenerator.Core.csproj" />
   <Project Path="KmlGenerator.Tests/KmlGenerator.Tests.csproj" />
+  <Project Path="LocationAssembler.Console/LocationAssembler.Console.csproj" />
   <Project Path="PlacesGatherer.Console.Tests/PlacesGatherer.Console.Tests.csproj" />
   <Project Path="PlacesGatherer.Console/PlacesGatherer.Console.csproj" />
 </Solution>

@@ -11,8 +11,34 @@
   },
   "searches": [
     {
-      "query": "Starbucks",
-      "category": "coffee"
+      "query": "Planet Fitness",
+      "category": "gym"
+    },
+    {
+      "query": "Piedmont Park",
+      "category": "park",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "north entrance",
+          "south entrance",
+          "access point"
+        ]
+      }
+    },
+    {
+      "query": "Atlanta BeltLine Eastside Trail",
+      "category": "trail",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "access",
+          "trailhead",
+          "intersection"
+        ]
+      }
     }
   ]
 }

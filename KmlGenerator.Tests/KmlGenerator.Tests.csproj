@@ -23,6 +23,7 @@
     <ProjectReference Include="..\KmlGenerator.Core\KmlGenerator.Core.csproj" />
     <ProjectReference Include="..\KmlGenerator.Api\KmlGenerator.Api.csproj" />
     <ProjectReference Include="..\KmlGenerator.Console\KmlGenerator.Console.csproj" />
+    <ProjectReference Include="..\LocationAssembler.Console\LocationAssembler.Console.csproj" />
   </ItemGroup>
 
 </Project>

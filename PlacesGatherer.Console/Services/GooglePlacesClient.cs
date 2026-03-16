@@ -64,7 +64,8 @@ public sealed class GooglePlacesClient
                 FormattedAddress = place.FormattedAddress,
                 Latitude = place.Location!.Latitude,
                 Longitude = place.Location.Longitude,
-                Types = place.Types ?? Array.Empty<string>()
+                Types = place.Types ?? Array.Empty<string>(),
+                SourceQueryType = search.SourceQueryType
             })
             .ToArray() ?? Array.Empty<NormalizedPlaceRecord>();
     }

@@ -42,6 +42,7 @@ public sealed class GooglePlacesClientTests
         Assert.Equal("Starbucks", record.Name);
         Assert.Equal("coffee", record.Category);
         Assert.Equal(40.1d, record.Latitude);
+        Assert.Equal("base", record.SourceQueryType);
     }
 
     [Fact]
@@ -57,5 +58,57 @@ public sealed class GooglePlacesClientTests
         };
 
         Assert.Throws<InvalidOperationException>(() => GooglePlacesClient.ValidateConfig(config));
+    }
+
+    [Fact]
+    public void Expand_BuildsBaseAndExpandedQueries()
+    {
+        var expanded = PlacesSearchExpander.Expand(new PlacesSearchDefinition
+        {
+            Query = "Piedmont Park",
+            Category = "park",
+            Expansion = new PlacesSearchExpansion
+            {
+                Enabled = true,
+                Templates = ["entrance", "{query} north entrance"]
+            }
+        });
+
+        Assert.Equal(3, expanded.Count);
+        Assert.Equal("base", expanded[0].SourceQueryType);
+        Assert.Equal("Piedmont Park entrance", expanded[1].Query);
+        Assert.Equal("expanded", expanded[1].SourceQueryType);
+        Assert.Equal("Piedmont Park north entrance", expanded[2].Query);
+    }
+
+    [Fact]
+    public void Normalize_AddsHints_WhenNamesConflict()
+    {
+        var normalized = PlaceNameNormalizer.Normalize(
+        [
+            new NormalizedPlaceRecord
+            {
+                Query = "Planet Fitness",
+                Category = "gym",
+                PlaceId = "pf-001",
+                Name = "Planet Fitness",
+                FormattedAddress = "123 Peachtree St NE, Atlanta, GA",
+                Latitude = 1,
+                Longitude = 1
+            },
+            new NormalizedPlaceRecord
+            {
+                Query = "Planet Fitness",
+                Category = "gym",
+                PlaceId = "pf-002",
+                Name = "Planet Fitness",
+                FormattedAddress = "456 Piedmont Ave NE, Atlanta, GA",
+                Latitude = 2,
+                Longitude = 2
+            }
+        ]);
+
+        Assert.Contains(normalized, record => record.Name == "Planet Fitness | Peachtree St NE");
+        Assert.Contains(normalized, record => record.Name == "Planet Fitness | Piedmont Ave NE");
     }
 }

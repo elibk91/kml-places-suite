@@ -40,4 +40,52 @@ public sealed class GooglePlacesLiveIntegrationTests
             Assert.False(string.IsNullOrWhiteSpace(result.Name));
         });
     }
+
+    [Fact]
+    public async Task SearchAsync_WorksWithExpandedParkQueries_WhenEnabled()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("RUN_LIVE_GOOGLE_TESTS"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var apiKey = Environment.GetEnvironmentVariable("GoogleMaps__ApiKey");
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("GoogleMaps__ApiKey must be set when RUN_LIVE_GOOGLE_TESTS=true.");
+        }
+
+        using var client = new HttpClient();
+        var placesClient = new GooglePlacesClient(client);
+
+        var searches = PlacesSearchExpander.Expand(new PlacesSearchDefinition
+        {
+            Query = "Piedmont Park",
+            Category = "park",
+            Expansion = new PlacesSearchExpansion
+            {
+                Enabled = true,
+                Templates = ["entrance"]
+            }
+        });
+
+        var totalCount = 0;
+        foreach (var search in searches)
+        {
+            var results = await placesClient.SearchAsync(
+                search,
+                new RectangleBounds
+                {
+                    North = 33.80d,
+                    South = 33.77d,
+                    East = -84.36d,
+                    West = -84.39d
+                },
+                apiKey);
+
+            totalCount += results.Count;
+        }
+
+        Assert.True(totalCount > 0);
+    }
 }

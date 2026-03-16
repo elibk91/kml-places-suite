@@ -36,17 +36,21 @@ public static class PlacesGathererRunner
             using var ownedClient = httpClient is null ? new HttpClient() : null;
             var client = new GooglePlacesClient(httpClient ?? ownedClient!);
 
-            var lines = new List<string>();
+            var gatheredRecords = new List<NormalizedPlaceRecord>();
 
-            // Each query stays independent so the output file reflects exactly what was asked for.
             foreach (var search in config.Searches)
             {
-                var results = await client.SearchAsync(search, config.Bounds, apiKey);
-                lines.AddRange(results.Select(record => JsonSerializer.Serialize(record, JsonOptions)));
+                foreach (var expandedSearch in PlacesSearchExpander.Expand(search))
+                {
+                    var results = await client.SearchAsync(expandedSearch, config.Bounds, apiKey);
+                    gatheredRecords.AddRange(results);
+                }
             }
 
+            var normalizedRecords = PlaceNameNormalizer.Normalize(gatheredRecords);
+            var lines = normalizedRecords.Select(record => JsonSerializer.Serialize(record, JsonOptions));
             await File.WriteAllLinesAsync(parsed.Value.OutputPath, lines);
-            await output.WriteLineAsync($"Saved {lines.Count} places to {parsed.Value.OutputPath}");
+            await output.WriteLineAsync($"Saved {normalizedRecords.Count} places to {parsed.Value.OutputPath}");
             return 0;
         }
         catch (Exception exception)

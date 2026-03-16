@@ -1,6 +1,6 @@
 namespace PlacesGatherer.Console.Models;
 
-public sealed class NormalizedPlaceRecord
+public sealed record class NormalizedPlaceRecord
 {
     public string Query { get; init; } = string.Empty;
 
@@ -17,4 +17,6 @@ public sealed class NormalizedPlaceRecord
     public double Longitude { get; init; }
 
     public IReadOnlyList<string> Types { get; init; } = Array.Empty<string>();
+
+    public string SourceQueryType { get; init; } = "base";
 }

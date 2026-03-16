@@ -31,33 +31,64 @@ public sealed class PlacesGathererRunnerTests
               },
               "searches": [
                 {
-                  "query": "Starbucks",
-                  "category": "coffee"
+                  "query": "Piedmont Park",
+                  "category": "park",
+                  "expansion": {
+                    "enabled": true,
+                    "templates": [ "entrance" ]
+                  }
                 }
               ]
             }
             """);
 
-        var handler = new StubHttpMessageHandler(_ =>
-            new HttpResponseMessage(HttpStatusCode.OK)
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+
+            if (body.Contains("Piedmont Park entrance", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "places": [
+                            {
+                              "id": "park-entrance-1",
+                              "displayName": { "text": "Piedmont Park" },
+                              "formattedAddress": "1320 Monroe Dr NE, Atlanta, GA",
+                              "location": { "latitude": 40.11, "longitude": -73.91 },
+                              "types": [ "park" ]
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
                     """
                     {
                       "places": [
                         {
-                          "id": "abc123",
-                          "displayName": { "text": "Starbucks" },
-                          "formattedAddress": "123 Main St",
+                          "id": "park-1",
+                          "displayName": { "text": "Piedmont Park" },
+                          "formattedAddress": "1071 Piedmont Ave NE, Atlanta, GA",
                           "location": { "latitude": 40.1, "longitude": -73.9 },
-                          "types": [ "cafe" ]
+                          "types": [ "park" ]
                         }
                       ]
                     }
                     """,
                     Encoding.UTF8,
                     "application/json")
-            });
+            };
+        });
 
         var exitCode = await PlacesGathererRunner.RunAsync(
             ["--config", configPath, "--output", outputPath],
@@ -67,8 +98,11 @@ public sealed class PlacesGathererRunnerTests
 
         Assert.Equal(0, exitCode);
         var lines = await File.ReadAllLinesAsync(outputPath);
-        Assert.Single(lines);
-        Assert.Contains("\"query\":\"Starbucks\"", lines[0]);
+        Assert.Equal(2, lines.Length);
+        Assert.Contains("\"sourceQueryType\":\"base\"", lines[0]);
+        Assert.Contains("\"sourceQueryType\":\"expanded\"", lines[1]);
+        Assert.Contains("\"name\":\"Piedmont Park | Piedmont Ave NE\"", lines[0]);
+        Assert.Contains("\"name\":\"Piedmont Park | Monroe Dr NE\"", lines[1]);
 
         Environment.SetEnvironmentVariable(variableName, null);
     }
