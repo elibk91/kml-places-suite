@@ -35,19 +35,32 @@ if (-not $env:GoogleMaps__ApiKey) {
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDirectory
-$solutionPath = Join-Path $repoRoot "KmlSuite.slnx"
 
-Write-Host "Building solution..."
-dotnet build $solutionPath
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet build failed."
+function Invoke-ProjectBuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    Write-Host "Building $Description..."
+    dotnet build $ProjectPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet build failed for $Description."
+    }
 }
+
+Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "PlacesGatherer.Console\PlacesGatherer.Console.csproj") -Description "Places gatherer"
 
 Write-Host "Gathering Places points..."
 dotnet run --project (Join-Path $repoRoot "PlacesGatherer.Console\\PlacesGatherer.Console.csproj") --no-build -- --config $ConfigPath --output $PlacesOutputPath
 if ($LASTEXITCODE -ne 0) {
     throw "Places gatherer failed."
 }
+
+Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "LocationAssembler.Console\LocationAssembler.Console.csproj") -Description "Location assembler"
 
 Write-Host "Assembling KML request..."
 dotnet run --project (Join-Path $repoRoot "LocationAssembler.Console\\LocationAssembler.Console.csproj") --no-build -- --input $PlacesOutputPath --output $RequestOutputPath
@@ -56,6 +69,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($KmlOutputPath) {
+    Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "KmlGenerator.Console\KmlGenerator.Console.csproj") -Description "KML generator"
+
     Write-Host "Generating KML..."
     dotnet run --project (Join-Path $repoRoot "KmlGenerator.Console\\KmlGenerator.Console.csproj") --no-build -- --input $RequestOutputPath --output $KmlOutputPath
     if ($LASTEXITCODE -ne 0) {
@@ -64,6 +79,8 @@ if ($KmlOutputPath) {
 }
 
 if ($TileOutputDirectory) {
+    Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "KmlTiler.Console\KmlTiler.Console.csproj") -Description "KML tiler"
+
     Write-Host "Generating tiled KML outputs..."
     dotnet run --project (Join-Path $repoRoot "KmlTiler.Console\\KmlTiler.Console.csproj") --no-build -- --input $RequestOutputPath --output-dir $TileOutputDirectory --north $TileNorth --south $TileSouth --west $TileWest --east $TileEast --lat-step $TileLatitudeStep --lon-step $TileLongitudeStep
     if ($LASTEXITCODE -ne 0) {

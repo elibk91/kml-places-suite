@@ -39,6 +39,9 @@ public sealed class LocationAssemblerRunnerTests
         });
 
         Assert.NotNull(request);
-        Assert.Equal(2, request!.Locations.Count);
+        Assert.Equal(3, request!.Locations.Count);
+        Assert.Contains(request.Locations, location => location.Label == "Piedmont Park");
+        Assert.Contains(request.Locations, location => location.Label == "Piedmont Park | Monroe Dr");
+        Assert.Contains(request.Locations, location => location.Label == "Atlanta BeltLine Eastside Trail");
     }
 }

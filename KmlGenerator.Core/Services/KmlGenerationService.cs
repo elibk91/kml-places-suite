@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Security;
 using System.Text;
+using System.Collections.Concurrent;
 using KmlGenerator.Core.Exceptions;
 using KmlGenerator.Core.Models;
 
@@ -21,15 +23,17 @@ public sealed class KmlGenerationService : IKmlGenerationService
         var locationsByCategory = request.Locations
             .GroupBy(location => location.Category.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var categoryIndexes = BuildCategoryIndexes(locationsByCategory, request.Step, request.RadiusMiles);
 
-        var validPoints = ScanValidPoints(bounds, request.Step, request.RadiusMiles, locationsByCategory);
-        var boundaryPoints = ExtractBoundaryPoints(validPoints);
-        var kml = BuildKml(bounds, request.Step, boundaryPoints);
+        var validPoints = ScanValidPoints(bounds, request.Step, request.RadiusMiles, categoryIndexes);
+        var shapeRegions = BuildShapeRegions(bounds, request.Step, request.RadiusMiles, validPoints, categoryIndexes);
+        var boundaryPointCount = shapeRegions.Sum(region => region.BoundaryPoints.Count);
+        var kml = BuildKml(shapeRegions, bounds, request.Step);
 
         return new GenerateKmlResult
         {
             Kml = kml,
-            BoundaryPointCount = boundaryPoints.Count,
+            BoundaryPointCount = boundaryPointCount,
             ValidPointCount = validPoints.Count,
             Bounds = bounds
         };
@@ -115,40 +119,52 @@ public sealed class KmlGenerationService : IKmlGenerationService
         BoundingBox bounds,
         double step,
         double radiusMiles,
-        IReadOnlyDictionary<string, LocationInput[]> locationsByCategory)
+        IReadOnlyList<CategoryIndex> categoryIndexes)
     {
-        var validPoints = new HashSet<GridPoint>();
+        var validPoints = new ConcurrentBag<GridPoint>();
         var totalLatSteps = (int)Math.Round((bounds.MaxLatitude - bounds.MinLatitude) / step) + 1;
         var totalLonSteps = (int)Math.Round((bounds.MaxLongitude - bounds.MinLongitude) / step) + 1;
 
         // The scan walks a dense grid because the algorithm is looking for the region where every category overlaps.
-        for (var latIndex = 0; latIndex < totalLatSteps; latIndex++)
-        {
-            var latitude = bounds.MinLatitude + (latIndex * step);
-
-            for (var lonIndex = 0; lonIndex < totalLonSteps; lonIndex++)
+        Parallel.For(
+            0,
+            totalLatSteps,
+            () => new List<GridPoint>(),
+            (latIndex, _, localMatches) =>
             {
-                var longitude = bounds.MinLongitude + (lonIndex * step);
-                var matchesAllCategories = true;
+                var latitude = bounds.MinLatitude + (latIndex * step);
 
-                foreach (var locations in locationsByCategory.Values)
+                for (var lonIndex = 0; lonIndex < totalLonSteps; lonIndex++)
                 {
-                    if (!locations.Any(location =>
-                            GetDistanceMiles(latitude, longitude, location.Latitude, location.Longitude) <= radiusMiles))
+                    var longitude = bounds.MinLongitude + (lonIndex * step);
+                    var matchesAllCategories = true;
+
+                    foreach (var categoryIndex in categoryIndexes)
                     {
-                        matchesAllCategories = false;
-                        break;
+                        if (!HasCategoryMatch(categoryIndex, latitude, longitude, radiusMiles))
+                        {
+                            matchesAllCategories = false;
+                            break;
+                        }
+                    }
+
+                    if (matchesAllCategories)
+                    {
+                        localMatches.Add(new GridPoint(latIndex, lonIndex));
                     }
                 }
 
-                if (matchesAllCategories)
+                return localMatches;
+            },
+            localMatches =>
+            {
+                foreach (var match in localMatches)
                 {
-                    validPoints.Add(new GridPoint(latIndex, lonIndex));
+                    validPoints.Add(match);
                 }
-            }
-        }
+            });
 
-        return validPoints;
+        return validPoints.ToHashSet();
     }
 
     private static List<GridPoint> ExtractBoundaryPoints(HashSet<GridPoint> validPoints)
@@ -176,30 +192,318 @@ public sealed class KmlGenerationService : IKmlGenerationService
         return boundaryPoints;
     }
 
-    private static string BuildKml(BoundingBox bounds, double step, IReadOnlyCollection<GridPoint> boundaryPoints)
+    private static IReadOnlyList<ShapeRegion> BuildShapeRegions(
+        BoundingBox bounds,
+        double step,
+        double radiusMiles,
+        HashSet<GridPoint> validPoints,
+        IReadOnlyList<CategoryIndex> categoryIndexes)
+    {
+        var components = ExtractConnectedComponents(validPoints);
+        var shapeRegions = new List<ShapeRegion>(components.Count);
+
+        foreach (var component in components)
+        {
+            var componentSet = component.ToHashSet();
+            var boundaryPoints = ExtractBoundaryPoints(componentSet);
+            var topMatches = CollectTopRelevantLocations(bounds, step, radiusMiles, boundaryPoints, categoryIndexes);
+
+            shapeRegions.Add(new ShapeRegion(boundaryPoints, topMatches));
+        }
+
+        return shapeRegions;
+    }
+
+    private static IReadOnlyList<List<GridPoint>> ExtractConnectedComponents(HashSet<GridPoint> validPoints)
+    {
+        var remaining = new HashSet<GridPoint>(validPoints);
+        var components = new List<List<GridPoint>>();
+
+        while (remaining.Count > 0)
+        {
+            var start = remaining.First();
+            var queue = new Queue<GridPoint>();
+            var component = new List<GridPoint>();
+            queue.Enqueue(start);
+            remaining.Remove(start);
+
+            while (queue.Count > 0)
+            {
+                var point = queue.Dequeue();
+                component.Add(point);
+
+                foreach (var neighbor in EnumerateNeighbors(point))
+                {
+                    if (remaining.Remove(neighbor))
+                    {
+                        queue.Enqueue(neighbor);
+                    }
+                }
+            }
+
+            components.Add(component);
+        }
+
+        return components;
+    }
+
+    private static IEnumerable<GridPoint> EnumerateNeighbors(GridPoint point)
+    {
+        yield return new GridPoint(point.LatitudeIndex + 1, point.LongitudeIndex);
+        yield return new GridPoint(point.LatitudeIndex - 1, point.LongitudeIndex);
+        yield return new GridPoint(point.LatitudeIndex, point.LongitudeIndex + 1);
+        yield return new GridPoint(point.LatitudeIndex, point.LongitudeIndex - 1);
+    }
+
+    private static IReadOnlyList<CategoryIndex> BuildCategoryIndexes(
+        IReadOnlyDictionary<string, LocationInput[]> locationsByCategory,
+        double step,
+        double radiusMiles)
+    {
+        var latitudeRadiusDegrees = radiusMiles / 69d;
+        var cellSizeDegrees = Math.Max(step * 4d, latitudeRadiusDegrees);
+        var indexes = new List<CategoryIndex>(locationsByCategory.Count);
+
+        foreach (var entry in locationsByCategory)
+        {
+            var bins = entry.Value
+                .GroupBy(location => new BinKey(GetBinIndex(location.Latitude, cellSizeDegrees), GetBinIndex(location.Longitude, cellSizeDegrees)))
+                .ToDictionary(group => group.Key, group => group.ToArray());
+
+            indexes.Add(new CategoryIndex(entry.Key, bins, cellSizeDegrees, latitudeRadiusDegrees));
+        }
+
+        return indexes;
+    }
+
+    private static bool HasCategoryMatch(CategoryIndex categoryIndex, double latitude, double longitude, double radiusMiles)
+    {
+        return FindCategoryMatches(categoryIndex, latitude, longitude, radiusMiles).Any();
+    }
+
+    private static int GetBinIndex(double value, double cellSizeDegrees) =>
+        (int)Math.Floor(value / cellSizeDegrees);
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<ScoredLocation>> CollectTopRelevantLocations(
+        BoundingBox bounds,
+        double step,
+        double radiusMiles,
+        IReadOnlyCollection<GridPoint> boundaryPoints,
+        IReadOnlyList<CategoryIndex> categoryIndexes)
+    {
+        var relevantByCategory = categoryIndexes.ToDictionary(
+            categoryIndex => categoryIndex.Category,
+            _ => new Dictionary<LocationInput, int>(LocationInputComparer.Instance),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var boundaryPoint in boundaryPoints)
+        {
+            var longitude = bounds.MinLongitude + (boundaryPoint.LongitudeIndex * step);
+            var latitude = bounds.MinLatitude + (boundaryPoint.LatitudeIndex * step);
+
+            foreach (var categoryIndex in categoryIndexes)
+            {
+                foreach (var location in FindCategoryMatches(categoryIndex, latitude, longitude, radiusMiles))
+                {
+                    var counts = relevantByCategory[categoryIndex.Category];
+                    counts[location] = counts.TryGetValue(location, out var count) ? count + 1 : 1;
+                }
+            }
+        }
+
+        return relevantByCategory.ToDictionary(
+            entry => entry.Key,
+            entry => (IReadOnlyList<ScoredLocation>)entry.Value
+                .OrderByDescending(static pair => pair.Value)
+                .ThenBy(static pair => pair.Key.Latitude)
+                .ThenBy(static pair => pair.Key.Longitude)
+                .Take(3)
+                .Select(static pair => new ScoredLocation(pair.Key, pair.Value))
+                .ToArray(),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<LocationInput> FindCategoryMatches(CategoryIndex categoryIndex, double latitude, double longitude, double radiusMiles)
+    {
+        var latBin = GetBinIndex(latitude, categoryIndex.CellSizeDegrees);
+        var lonBin = GetBinIndex(longitude, categoryIndex.CellSizeDegrees);
+        var latitudeNeighbors = Math.Max(1, (int)Math.Ceiling(categoryIndex.LatitudeRadiusDegrees / categoryIndex.CellSizeDegrees));
+
+        var cosLatitude = Math.Max(0.01d, Math.Cos(latitude * DegreesToRadians));
+        var longitudeRadiusDegrees = radiusMiles / (69d * cosLatitude);
+        var longitudeNeighbors = Math.Max(1, (int)Math.Ceiling(longitudeRadiusDegrees / categoryIndex.CellSizeDegrees));
+
+        for (var latOffset = -latitudeNeighbors; latOffset <= latitudeNeighbors; latOffset++)
+        {
+            for (var lonOffset = -longitudeNeighbors; lonOffset <= longitudeNeighbors; lonOffset++)
+            {
+                if (!categoryIndex.Bins.TryGetValue(new BinKey(latBin + latOffset, lonBin + lonOffset), out var locations))
+                {
+                    continue;
+                }
+
+                foreach (var location in locations)
+                {
+                    if (GetDistanceMiles(latitude, longitude, location.Latitude, location.Longitude) <= radiusMiles)
+                    {
+                        yield return location;
+                    }
+                }
+            }
+        }
+    }
+
+    private static string BuildKml(IReadOnlyList<ShapeRegion> shapeRegions, BoundingBox bounds, double step)
     {
         var builder = new StringBuilder();
         builder.AppendLine("""<?xml version="1.0" encoding="UTF-8"?>""");
         builder.AppendLine("""<kml xmlns="http://www.opengis.net/kml/2.2">""");
         builder.AppendLine("<Document>");
-        builder.AppendLine("""  <Style id="dot"><IconStyle><scale>0.4</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><color>ff0000ff</color></IconStyle></Style>""");
+        builder.AppendLine("""  <Style id="boundary-point"><IconStyle><scale>0.45</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><color>ff0000ff</color></IconStyle></Style>""");
 
-        foreach (var point in boundaryPoints)
+        var categories = shapeRegions
+            .SelectMany(static region => region.TopMatchesByCategory.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static category => category, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        foreach (var category in categories)
         {
-            var longitude = bounds.MinLongitude + (point.LongitudeIndex * step);
-            var latitude = bounds.MinLatitude + (point.LatitudeIndex * step);
-
-            builder.Append("    <Placemark><styleUrl>#dot</styleUrl><Point><coordinates>");
-            builder.Append(longitude.ToString("G17", CultureInfo.InvariantCulture));
-            builder.Append(',');
-            builder.Append(latitude.ToString("G17", CultureInfo.InvariantCulture));
-            builder.AppendLine(",0</coordinates></Point></Placemark>");
+            var styleId = BuildCategoryStyleId(category);
+            var color = GetCategoryColor(category);
+            builder.Append("  <Style id=\"");
+            builder.Append(styleId);
+            builder.Append("\"><IconStyle><scale>0.7</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><color>");
+            builder.Append(color);
+            builder.AppendLine("</color></IconStyle></Style>");
         }
 
+        for (var shapeIndex = 0; shapeIndex < shapeRegions.Count; shapeIndex++)
+        {
+            var shapeRegion = shapeRegions[shapeIndex];
+            builder.AppendLine("  <Folder>");
+            builder.Append("    <name>Shape ");
+            builder.Append(shapeIndex + 1);
+            builder.AppendLine("</name>");
+
+            builder.AppendLine("    <Folder>");
+            builder.AppendLine("      <name>Overlap Boundary</name>");
+            foreach (var boundaryPoint in shapeRegion.BoundaryPoints)
+            {
+                builder.AppendLine("      <Placemark>");
+                builder.AppendLine("        <styleUrl>#boundary-point</styleUrl>");
+                builder.AppendLine("        <Point>");
+                builder.Append("          <coordinates>");
+                builder.Append((bounds.MinLongitude + (boundaryPoint.LongitudeIndex * step)).ToString("G17", CultureInfo.InvariantCulture));
+                builder.Append(',');
+                builder.Append((bounds.MinLatitude + (boundaryPoint.LatitudeIndex * step)).ToString("G17", CultureInfo.InvariantCulture));
+                builder.AppendLine(",0</coordinates>");
+                builder.AppendLine("        </Point>");
+                builder.AppendLine("      </Placemark>");
+            }
+
+            builder.AppendLine("    </Folder>");
+
+            builder.AppendLine("    <Folder>");
+            builder.AppendLine("      <name>Category Points</name>");
+
+            foreach (var entry in shapeRegion.TopMatchesByCategory.OrderBy(static entry => entry.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                builder.AppendLine("      <Folder>");
+                builder.Append("        <name>");
+                builder.Append(SecurityElement.Escape(entry.Key));
+                builder.AppendLine("</name>");
+
+                var styleId = BuildCategoryStyleId(entry.Key);
+                foreach (var scoredLocation in entry.Value)
+                {
+                    builder.Append("        <Placemark><name>");
+                    builder.Append(SecurityElement.Escape(BuildLocationLabel(entry.Key, scoredLocation)));
+                    builder.AppendLine("</name>");
+                    builder.Append("          <styleUrl>#");
+                    builder.Append(styleId);
+                    builder.AppendLine("</styleUrl>");
+                    builder.Append("          <Point><coordinates>");
+                    builder.Append(scoredLocation.Location.Longitude.ToString("G17", CultureInfo.InvariantCulture));
+                    builder.Append(',');
+                    builder.Append(scoredLocation.Location.Latitude.ToString("G17", CultureInfo.InvariantCulture));
+                    builder.AppendLine(",0</coordinates></Point>");
+                    builder.AppendLine("        </Placemark>");
+                }
+
+                builder.AppendLine("      </Folder>");
+            }
+
+            builder.AppendLine("    </Folder>");
+            builder.AppendLine("  </Folder>");
+        }
         builder.AppendLine("</Document>");
         builder.AppendLine("</kml>");
         return builder.ToString();
     }
 
+    private static string BuildCategoryStyleId(string category) =>
+        $"category-{new string(category.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant()}";
+
+    private static string GetCategoryColor(string category) =>
+        category.Trim().ToLowerInvariant() switch
+        {
+            "gym" => "ff00a5ff",
+            "grocery" => "ff3cb44b",
+            "marta" => "ff4b4bff",
+            "park" => "ff2e8b57",
+            "trail" => "ff00d7ff",
+            _ => "ffffffff"
+        };
+
+    private static string BuildLocationLabel(string category, ScoredLocation scoredLocation)
+    {
+        var label = string.IsNullOrWhiteSpace(scoredLocation.Location.Label)
+            ? category
+            : scoredLocation.Location.Label!;
+
+        return $"{label} ({scoredLocation.Count})";
+    }
+
     private readonly record struct GridPoint(int LatitudeIndex, int LongitudeIndex);
+
+    private readonly record struct BinKey(int LatitudeBin, int LongitudeBin);
+
+    private sealed record CategoryIndex(
+        string Category,
+        IReadOnlyDictionary<BinKey, LocationInput[]> Bins,
+        double CellSizeDegrees,
+        double LatitudeRadiusDegrees);
+
+    private sealed record ShapeRegion(
+        IReadOnlyList<GridPoint> BoundaryPoints,
+        IReadOnlyDictionary<string, IReadOnlyList<ScoredLocation>> TopMatchesByCategory);
+
+    private sealed record ScoredLocation(LocationInput Location, int Count);
+
+    private sealed class LocationInputComparer : IEqualityComparer<LocationInput>
+    {
+        public static LocationInputComparer Instance { get; } = new();
+
+        public bool Equals(LocationInput? x, LocationInput? y)
+        {
+            if (ReferenceEquals(x, y))
+            {
+                return true;
+            }
+
+            if (x is null || y is null)
+            {
+                return false;
+            }
+
+            return x.Category.Equals(y.Category, StringComparison.OrdinalIgnoreCase)
+                   && x.Latitude.Equals(y.Latitude)
+                   && x.Longitude.Equals(y.Longitude)
+                   && string.Equals(x.Label, y.Label, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int GetHashCode(LocationInput obj) =>
+            HashCode.Combine(obj.Category.ToUpperInvariant(), obj.Latitude, obj.Longitude, obj.Label?.ToUpperInvariant());
+    }
 }

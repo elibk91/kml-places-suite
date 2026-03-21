@@ -62,7 +62,22 @@ if (-not $env:GoogleMaps__ApiKey) {
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDirectory
-$solutionPath = Join-Path $repoRoot "KmlSuite.slnx"
+
+function Invoke-ProjectBuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    Write-Host "Building $Description..."
+    dotnet build $ProjectPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet build failed for $Description."
+    }
+}
 
 $requiredMasterLists = @(
     "gyms-master.jsonl",
@@ -70,11 +85,7 @@ $requiredMasterLists = @(
     "marta-master.jsonl"
 )
 
-Write-Host "Building solution..."
-dotnet build $solutionPath
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet build failed."
-}
+Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "MasterListBuilder.Console\MasterListBuilder.Console.csproj") -Description "master list builder"
 
 Write-Host "Building category master lists..."
 dotnet run --project (Join-Path $repoRoot "MasterListBuilder.Console\MasterListBuilder.Console.csproj") --no-build -- --config $MasterListConfigPath --output-dir $MasterListOutputDirectory
@@ -93,6 +104,8 @@ if ($ArcMartaInputPaths -and $ArcMartaInputPaths.Count -gt 0) {
     if (-not $ArcMartaOutputPath) {
         throw "ArcMartaOutputPath is required when ArcMartaInputPaths are provided."
     }
+
+    Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "ArcGeometryExtractor.Console\ArcGeometryExtractor.Console.csproj") -Description "ARC geometry extractor"
 
     $arcMartaArguments = @()
     foreach ($inputPath in $ArcMartaInputPaths) {
@@ -113,6 +126,8 @@ elseif ($MartaConfigPath) {
     if (-not $MartaOutputPath) {
         throw "MartaOutputPath is required when MartaConfigPath is provided."
     }
+
+    Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "ResearchPointResolver.Console\ResearchPointResolver.Console.csproj") -Description "research point resolver"
 
     Write-Host "Resolving curated MARTA stations..."
     dotnet run --project (Join-Path $repoRoot "ResearchPointResolver.Console\ResearchPointResolver.Console.csproj") --no-build -- --config $MartaConfigPath --output $MartaOutputPath
@@ -161,6 +176,8 @@ if ($ArcInputPaths -and $ArcInputPaths.Count -gt 0) {
         throw "ArcOutputPath is required when ArcInputPaths are provided."
     }
 
+    Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "ArcGeometryExtractor.Console\ArcGeometryExtractor.Console.csproj") -Description "ARC geometry extractor"
+
     $arcArguments = @()
     foreach ($inputPath in $ArcInputPaths) {
         $arcArguments += "--input"
@@ -194,6 +211,8 @@ if ($ArcInputPaths -and $ArcInputPaths.Count -gt 0) {
     $parkTrailInputPath = $ArcOutputPath
 }
 elseif ($ResearchConfigPath -and $ResolvedResearchOutputPath) {
+    Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "ResearchPointResolver.Console\ResearchPointResolver.Console.csproj") -Description "research point resolver"
+
     Write-Host "Resolving researched park/trail targets..."
     dotnet run --project (Join-Path $repoRoot "ResearchPointResolver.Console\ResearchPointResolver.Console.csproj") --no-build -- --config $ResearchConfigPath --output $ResolvedResearchOutputPath
     if ($LASTEXITCODE -ne 0) {
@@ -216,11 +235,15 @@ $assemblerInputs = @(
     "--output", $FinalRequestOutputPath
 )
 
+Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "LocationAssembler.Console\LocationAssembler.Console.csproj") -Description "location assembler"
+
 Write-Host "Assembling final category dataset..."
 dotnet run --project (Join-Path $repoRoot "LocationAssembler.Console\LocationAssembler.Console.csproj") --no-build -- @assemblerInputs
 if ($LASTEXITCODE -ne 0) {
     throw "Location assembler failed."
 }
+
+Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "KmlGenerator.Console\KmlGenerator.Console.csproj") -Description "KML generator"
 
 Write-Host "Generating whole-area KML..."
 dotnet run --project (Join-Path $repoRoot "KmlGenerator.Console\KmlGenerator.Console.csproj") --no-build -- --input $FinalRequestOutputPath --output $KmlOutputPath
@@ -229,6 +252,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($TileOutputDirectory) {
+    Invoke-ProjectBuild -ProjectPath (Join-Path $repoRoot "KmlTiler.Console\KmlTiler.Console.csproj") -Description "KML tiler"
+
     Write-Host "Generating tiled KML outputs..."
     dotnet run --project (Join-Path $repoRoot "KmlTiler.Console\KmlTiler.Console.csproj") --no-build -- --input $FinalRequestOutputPath --output-dir $TileOutputDirectory --north $TileNorth --south $TileSouth --west $TileWest --east $TileEast --lat-step $TileLatitudeStep --lon-step $TileLongitudeStep
     if ($LASTEXITCODE -ne 0) {

@@ -10,4 +10,6 @@ public sealed class LocationInput
     public double Longitude { get; init; }
 
     public string Category { get; init; } = string.Empty;
+
+    public string? Label { get; init; }
 }

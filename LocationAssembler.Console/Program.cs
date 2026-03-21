@@ -46,7 +46,8 @@ public static class LocationAssemblerRunner
                 {
                     Latitude = record.Latitude,
                     Longitude = record.Longitude,
-                    Category = record.Category
+                    Category = record.Category,
+                    Label = record.Name
                 })
                 .Distinct(LocationInputComparer.Instance)
                 .ToArray();
@@ -110,7 +111,8 @@ public static class LocationAssemblerRunner
 
             return x.Category.Equals(y.Category, StringComparison.OrdinalIgnoreCase)
                    && x.Latitude.Equals(y.Latitude)
-                   && x.Longitude.Equals(y.Longitude);
+                   && x.Longitude.Equals(y.Longitude)
+                   && string.Equals(x.Label, y.Label, StringComparison.OrdinalIgnoreCase);
         }
 
         public int GetHashCode(LocationInput obj)
@@ -118,7 +120,8 @@ public static class LocationAssemblerRunner
             return HashCode.Combine(
                 obj.Category.ToUpperInvariant(),
                 obj.Latitude,
-                obj.Longitude);
+                obj.Longitude,
+                obj.Label?.ToUpperInvariant());
         }
     }
 }

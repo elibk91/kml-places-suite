@@ -50,8 +50,8 @@ public static class ArcGeometryExtractorRunner
                 for (var placemarkIndex = 0; placemarkIndex < placemarks.Length; placemarkIndex++)
                 {
                     var placemark = placemarks[placemarkIndex];
-                    var featureName = ReadTrimmedChildValue(placemark, "name");
                     var metadata = ReadMetadata(placemark);
+                    var featureName = ResolveFeatureName(ReadTrimmedChildValue(placemark, "name"), metadata, sourceFileName);
 
                     var lineStrings = placemark
                         .Descendants()
@@ -376,6 +376,26 @@ public static class ArcGeometryExtractorRunner
     private static string ReadTrimmedChildValue(XElement parent, string localName) =>
         parent.Elements().FirstOrDefault(element => element.Name.LocalName.Equals(localName, StringComparison.Ordinal))?.Value.Trim() ?? string.Empty;
 
+    private static string ResolveFeatureName(string directName, IReadOnlyDictionary<string, string> metadata, string sourceFileName)
+    {
+        if (!string.IsNullOrWhiteSpace(directName))
+        {
+            return directName;
+        }
+
+        foreach (var key in PreferredNameKeys)
+        {
+            if (metadata.TryGetValue(key, out var value)
+                && !string.IsNullOrWhiteSpace(value)
+                && !value.Equals("Null", StringComparison.OrdinalIgnoreCase))
+            {
+                return value.Trim();
+            }
+        }
+
+        return sourceFileName;
+    }
+
     private static IEnumerable<GeoPoint> ParsePolygonPoints(XElement polygon) =>
         polygon
             .Descendants()
@@ -587,6 +607,19 @@ public static class ArcGeometryExtractorRunner
         "sidewalk",
         "sidewalk segment"
     };
+
+    private static readonly string[] PreferredNameKeys =
+    [
+        "AllParks_Fields_Park_Name",
+        "Atlanta__GA_ServiceAreas_Park_N",
+        "Park_Name",
+        "PARK_NAME",
+        "Name",
+        "LABEL",
+        "STATION",
+        "Station",
+        "Trail_Name"
+    ];
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

@@ -16,11 +16,11 @@ if (-not $env:GoogleMaps__ApiKey) {
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDirectory
-$solutionPath = Join-Path $repoRoot "KmlSuite.slnx"
 
-dotnet build $solutionPath
+Write-Host "Building research point resolver..."
+dotnet build (Join-Path $repoRoot "ResearchPointResolver.Console\ResearchPointResolver.Console.csproj")
 if ($LASTEXITCODE -ne 0) {
-    throw "dotnet build failed."
+    throw "dotnet build failed for research point resolver."
 }
 
 dotnet run --project (Join-Path $repoRoot "ResearchPointResolver.Console\\ResearchPointResolver.Console.csproj") --no-build -- --config $ConfigPath --output $OutputPath

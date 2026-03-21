@@ -5,3 +5,4 @@
 - Input contract: `GenerateKmlRequest`
 - Output: `.kml`
 - Keep this host file-based and thin; the overlap algorithm belongs in `KmlGenerator.Core`.
+- Current main output is a point-based overlap boundary plus optional supporting category points.

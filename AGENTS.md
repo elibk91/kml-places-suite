@@ -47,6 +47,7 @@
 - Use Google Places for gyms and groceries. Use authoritative ARC geometry for parks, trails, and MARTA when available.
 - Keep legacy Google/manual park-trail workflows available for QA and fallback, but not as the primary source of record.
 - Default MARTA source is the ARC rail-stations KMZ, not Google-resolved station search.
+- Current authoritative overlap output uses point-based boundary dots, not stitched polygons.
 - Read secrets through the secret-provider plumbing, not directly in domain code.
 - Use comments as signposts around major flows and non-obvious math, not on trivial assignments.
 
@@ -72,7 +73,6 @@
   - `config/authority/` for current authoritative inputs
   - `config/legacy/` for older or fallback inputs
 - Keep planning and architecture docs under `docs/`.
-- Current planning docs live under `docs/plans/`.
 
 ## Secrets
 - Local development reads `GoogleMaps__ApiKey` from the environment.
@@ -82,7 +82,7 @@
 ## Testing
 - Standard test runs should stay deterministic and not require live Google access.
 - Live Places integration tests are opt-in and require `RUN_LIVE_GOOGLE_TESTS=true` plus `GoogleMaps__ApiKey`.
-- `scripts/run-workflow.ps1` is the top-level local runner; it always builds before running gatherer, assembler, optional single KML generation, and optional tiled KML generation.
-- `scripts/build-master-lists.ps1` builds category-specific master lists.
-- `scripts/resolve-research-points.ps1` resolves researched park/trail address targets into normalized points.
-- `scripts/run-category-workflow.ps1` can assemble category data from Google-built master lists plus authoritative local ARC outputs.
+- `scripts/run-workflow.ps1` is the top-level local runner; it builds each project it invokes before running gatherer, assembler, optional single KML generation, and optional tiled KML generation.
+- `scripts/build-master-lists.ps1` builds `MasterListBuilder.Console` before running category-specific master list generation.
+- `scripts/resolve-research-points.ps1` builds `ResearchPointResolver.Console` before resolving researched park/trail address targets.
+- `scripts/run-category-workflow.ps1` builds each invoked project and can assemble category data from Google-built master lists plus authoritative local ARC outputs.
