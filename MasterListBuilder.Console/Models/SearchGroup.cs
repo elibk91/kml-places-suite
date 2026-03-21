@@ -8,5 +8,7 @@ public sealed class SearchGroup
 
     public string Mode { get; init; } = "tiled";
 
+    public bool ApplyCategoryFilter { get; init; } = true;
+
     public IReadOnlyList<PlacesSearchDefinition> Searches { get; init; } = Array.Empty<PlacesSearchDefinition>();
 }

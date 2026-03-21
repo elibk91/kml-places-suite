@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="ArcGeometryExtractor.Console/ArcGeometryExtractor.Console.csproj" />
   <Project Path="KmlGenerator.Api/KmlGenerator.Api.csproj" />
   <Project Path="KmlGenerator.Console/KmlGenerator.Console.csproj" />
   <Project Path="KmlGenerator.Core/KmlGenerator.Core.csproj" />

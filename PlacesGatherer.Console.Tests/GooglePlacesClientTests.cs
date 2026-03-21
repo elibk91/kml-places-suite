@@ -46,6 +46,50 @@ public sealed class GooglePlacesClientTests
     }
 
     [Fact]
+    public async Task SearchAsync_RetriesTransientServiceUnavailableResponses()
+    {
+        var attempts = 0;
+        var handler = new StubHttpMessageHandler(_ =>
+        {
+            attempts++;
+            if (attempts < 3)
+            {
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    {
+                      "places": [
+                        {
+                          "id": "park-1",
+                          "displayName": { "text": "Piedmont Park" },
+                          "formattedAddress": "1320 Monroe Dr NE, Atlanta, GA 30306, USA",
+                          "location": { "latitude": 33.7851, "longitude": -84.3738 },
+                          "types": [ "park" ]
+                        }
+                      ]
+                    }
+                    """,
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        });
+
+        var client = new GooglePlacesClient(new HttpClient(handler));
+
+        var results = await client.SearchAsync(
+            new PlacesSearchDefinition { Query = "park", Category = "park" },
+            new RectangleBounds { North = 33.80d, South = 33.70d, East = -84.30d, West = -84.40d },
+            "key");
+
+        Assert.Equal(3, attempts);
+        Assert.Single(results);
+    }
+
+    [Fact]
     public void ValidateConfig_Throws_WhenCategoryIsMissing()
     {
         var config = new PlacesGathererConfig

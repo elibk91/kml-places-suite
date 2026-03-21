@@ -1,0 +1,266 @@
+using System.IO.Compression;
+using System.Text.Json;
+using PlacesGatherer.Console.Models;
+
+namespace KmlGenerator.Tests;
+
+public sealed class ArcGeometryExtractorRunnerTests
+{
+    [Fact]
+    public async Task RunAsync_ExtractsParkAndTrailPointsFromArcGeometry()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var inputPath = Path.Combine(tempDirectory.FullName, "arc.kml");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+        var parkOutputPath = Path.Combine(tempDirectory.FullName, "parks.jsonl");
+        var trailOutputPath = Path.Combine(tempDirectory.FullName, "trails.jsonl");
+        var featureOutputPath = Path.Combine(tempDirectory.FullName, "features.jsonl");
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <Placemark>
+                  <name>Piedmont Park</name>
+                  <Polygon>
+                    <outerBoundaryIs>
+                      <LinearRing>
+                        <coordinates>-84.3738,33.7851 -84.3737,33.7852 -84.3738,33.7851</coordinates>
+                      </LinearRing>
+                    </outerBoundaryIs>
+                  </Polygon>
+                </Placemark>
+                <Placemark>
+                  <name>Atlanta Beltline</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Plan_</td><td>Atlanta Transportation Plan</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.3636,33.7528 -84.3637,33.7529</coordinates>
+                  </LineString>
+                </Placemark>
+                <Placemark>
+                  <name>Ponce de Leon Ave</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>On-Street Bicycle Facility</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.3610,33.7720 -84.3609,33.7721</coordinates>
+                  </LineString>
+                </Placemark>
+              </Document>
+            </kml>
+            """);
+
+        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+            ["--input", inputPath, "--output", outputPath, "--park-output", parkOutputPath, "--trail-output", trailOutputPath, "--feature-output", featureOutputPath],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.Equal(5, points.Count);
+        Assert.Equal(3, points.Count(record => record.Category == "park"));
+        Assert.Equal(2, points.Count(record => record.Category == "trail"));
+        Assert.DoesNotContain(points, record => record.Name.Contains("Ponce", StringComparison.Ordinal));
+
+        var parks = await ReadRecordsAsync(parkOutputPath);
+        var trails = await ReadRecordsAsync(trailOutputPath);
+        Assert.Equal(3, parks.Count);
+        Assert.Equal(2, trails.Count);
+
+        var features = await File.ReadAllLinesAsync(featureOutputPath);
+        Assert.Equal(2, features.Length);
+    }
+
+    [Fact]
+    public async Task RunAsync_SanitizesInvalidXmlAndSkipsExactDuplicateInputs()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var kmzPath = Path.Combine(tempDirectory.FullName, "trail-a.kmz");
+        var duplicateKmzPath = Path.Combine(tempDirectory.FullName, "trail-a-copy.kmz");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+
+        var kml = """
+                  <kml xmlns="http://www.opengis.net/kml/2.2">
+                    <Document>
+                      <Placemark>
+                        <name>Atlanta Beltline</name>
+                        <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr></table></body></html>]]></description>
+                        <LineString>
+                          <coordinates>-84.3636,33.7528 -84.3637,33.7529</coordinates>
+                        </LineString>
+                      </Placemark>
+                    </Document>
+                  </kml>
+                  """;
+
+        await CreateKmzAsync(kmzPath, kml);
+        File.Copy(kmzPath, duplicateKmzPath);
+
+        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+            ["--input", kmzPath, "--input", duplicateKmzPath, "--output", outputPath],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.Equal(2, points.Count);
+    }
+
+    [Fact]
+    public async Task RunAsync_FiltersTrailPlanInventoryToRealTrailSignals()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var inputPath = Path.Combine(tempDirectory.FullName, "Trail_Plan_Inventory.kml");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <Placemark>
+                  <name>Atlanta Beltline</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.3636,33.7528 -84.3637,33.7529</coordinates>
+                  </LineString>
+                </Placemark>
+                <Placemark>
+                  <name>CTP-84</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Active Transportation</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.4600,33.7000 -84.4601,33.7001</coordinates>
+                  </LineString>
+                </Placemark>
+                <Placemark>
+                  <name>NULL</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Null</td></tr><tr><td>Plan_</td><td>Chattahoochee RiverLands</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.4700,33.7100 -84.4701,33.7101</coordinates>
+                  </LineString>
+                </Placemark>
+              </Document>
+            </kml>
+            """);
+
+        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+            ["--input", inputPath, "--output", outputPath],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.Equal(2, points.Count);
+        Assert.All(points, point => Assert.Contains("Atlanta Beltline", point.Name, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RunAsync_ExtractsMartaPointFeatures()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var inputPath = Path.Combine(tempDirectory.FullName, "MARTA_Rail_Stations.kml");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <Placemark>
+                  <name>Decatur</name>
+                  <description><![CDATA[<html><body><table><tr><td>STATION</td><td>Decatur</td></tr><tr><td>Station_Code</td><td>E6</td></tr><tr><td>LABEL</td><td>MARTA Decatur Station</td></tr></table></body></html>]]></description>
+                  <Point>
+                    <coordinates>-84.2953720094924,33.77451705802737,0</coordinates>
+                  </Point>
+                </Placemark>
+              </Document>
+            </kml>
+            """);
+
+        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+            ["--input", inputPath, "--output", outputPath],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        var point = Assert.Single(points);
+        Assert.Equal("marta", point.Category);
+        Assert.Equal("Decatur", point.Name);
+    }
+
+    [Fact]
+    public async Task RunAsync_ExtractsRealisticArcMartaFolderShape()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var kmzPath = Path.Combine(tempDirectory.FullName, "MARTA_Rail_Stations.kmz");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+
+        var kml = """
+                  <?xml version="1.0" encoding="UTF-8"?>
+                  <kml xmlns="http://www.opengis.net/kml/2.2">
+                    <Document id="MARTA_Rail_Stations">
+                      <name>MARTA Rail Stations</name>
+                      <Folder id="FeatureLayer0">
+                        <name>MARTA Rail Stations</name>
+                        <Placemark id="ID_00000">
+                          <name>Decatur</name>
+                          <snippet></snippet>
+                          <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>STATION</td><td>Decatur</td></tr><tr><td>Station_Code</td><td>E6</td></tr><tr><td>Street</td><td>400 Church St</td></tr><tr><td>City</td><td>Decatur</td></tr><tr><td>Zip</td><td>30030</td></tr><tr><td>LABEL</td><td>MARTA Decatur Station</td></tr></table></body></html>]]></description>
+                          <styleUrl>#IconStyle00</styleUrl>
+                          <Point>
+                            <extrude>0</extrude><altitudeMode>clampToGround</altitudeMode>
+                            <coordinates> -84.2953720094924,33.77451705802737,0</coordinates>
+                          </Point>
+                        </Placemark>
+                        <Placemark id="ID_00001">
+                          <name>Avondale</name>
+                          <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>STATION</td><td>Avondale</td></tr><tr><td>Station_Code</td><td>E7</td></tr><tr><td>LABEL</td><td>MARTA Avondale Station</td></tr></table></body></html>]]></description>
+                          <Point>
+                            <coordinates> -84.28233337395447,33.77502441308098,0</coordinates>
+                          </Point>
+                        </Placemark>
+                      </Folder>
+                    </Document>
+                  </kml>
+                  """;
+
+        await CreateKmzAsync(kmzPath, kml);
+
+        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+            ["--input", kmzPath, "--output", outputPath],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.Equal(2, points.Count);
+        Assert.All(points, point => Assert.Equal("marta", point.Category));
+        Assert.Contains(points, point => point.Name == "Decatur");
+        Assert.Contains(points, point => point.Name == "Avondale");
+    }
+
+    private static async Task<List<NormalizedPlaceRecord>> ReadRecordsAsync(string path) =>
+        (await File.ReadAllLinesAsync(path))
+        .Where(line => !string.IsNullOrWhiteSpace(line))
+        .Select(line => JsonSerializer.Deserialize<NormalizedPlaceRecord>(line, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        }))
+        .OfType<NormalizedPlaceRecord>()
+        .ToList();
+
+    private static async Task CreateKmzAsync(string path, string kml)
+    {
+        await using var stream = File.Create(path);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false);
+        var entry = archive.CreateEntry("doc.kml");
+        await using var entryStream = entry.Open();
+        await using var writer = new StreamWriter(entryStream);
+        await writer.WriteAsync(kml);
+    }
+}

@@ -33,7 +33,8 @@ if (-not $env:GoogleMaps__ApiKey) {
     throw "GoogleMaps__ApiKey is required."
 }
 
-$repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Split-Path -Parent $scriptDirectory
 $solutionPath = Join-Path $repoRoot "KmlSuite.slnx"
 
 Write-Host "Building solution..."

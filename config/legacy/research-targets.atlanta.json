@@ -1,0 +1,79 @@
+{
+  "bounds": {
+    "north": 33.952876,
+    "south": 33.698669,
+    "east": -84.095141,
+    "west": -84.54903
+  },
+  "secrets": {
+    "provider": "Local",
+    "environmentVariableName": "GoogleMaps__ApiKey"
+  },
+  "targets": [
+    { "label": "Piedmont Park Charles Allen Gate", "category": "park", "query": "Piedmont Park Charles Allen Dr entrance, Atlanta, GA" },
+    { "label": "Piedmont Park Monroe Drive Gate", "category": "park", "query": "1322 Monroe Dr NE, Atlanta, GA 30306" },
+    { "label": "Piedmont Park 14th Street Gate", "category": "park", "query": "14th St NE and Piedmont Ave NE, Atlanta, GA" },
+    { "label": "Piedmont Park 10th Street Meadow", "category": "park", "query": "10th St NE and Monroe Dr NE, Atlanta, GA" },
+    { "label": "Piedmont Park Piedmont Avenue Edge", "category": "park", "query": "1071 Piedmont Ave NE, Atlanta, GA 30309" },
+
+    { "label": "Historic Fourth Ward Park North Entrance", "category": "park", "query": "665 North Ave NE, Atlanta, GA 30308" },
+    { "label": "Historic Fourth Ward Park East Edge", "category": "park", "query": "650 Angier Ave NE, Atlanta, GA 30308" },
+    { "label": "Historic Fourth Ward Park South Entrance", "category": "park", "query": "700 Ralph McGill Ave NE, Atlanta, GA 30312" },
+    { "label": "Historic Fourth Ward Park Skatepark Edge", "category": "park", "query": "830 Willoughby Way NE, Atlanta, GA 30312" },
+
+    { "label": "Grant Park Cherokee Entrance", "category": "park", "query": "840 Cherokee Ave SE, Atlanta, GA 30315" },
+    { "label": "Grant Park Park Avenue Edge", "category": "park", "query": "537 Park Ave SE, Atlanta, GA 30312" },
+    { "label": "Grant Park Boulevard Edge", "category": "park", "query": "Boulevard SE and Atlanta Ave SE, Atlanta, GA" },
+    { "label": "Grant Park Milledge Fountain", "category": "park", "query": "800 Cherokee Ave SE, Atlanta, GA 30315" },
+    { "label": "Grant Park Atlanta Avenue Edge", "category": "park", "query": "Atlanta Ave SE and Cherokee Ave SE, Atlanta, GA" },
+
+    { "label": "Freedom Park Moreland Access", "category": "park", "query": "Moreland Ave NE and North Ave NE, Atlanta, GA 30308" },
+    { "label": "Freedom Park North Highland Access", "category": "trail", "query": "Freedom Park Trail and North Highland Ave NE, Atlanta, GA" },
+    { "label": "Freedom Park Candler Park Drive Access", "category": "trail", "query": "Freedom Park Trail and Candler Park Dr NE, Atlanta, GA" },
+    { "label": "Freedom Park Druid Hills Crossing", "category": "trail", "query": "Freedom Park Trail and Druid Hills Dr NE, Atlanta, GA" },
+    { "label": "Freedom Park Oakdale Crossing", "category": "trail", "query": "Freedom Park Trail and Oakdale Rd NE, Atlanta, GA" },
+
+    { "label": "BeltLine Eastside at Ponce City Market", "category": "trail", "query": "1141 North Ave NE, Atlanta, GA 30307" },
+    { "label": "BeltLine Eastside at Piedmont Park", "category": "trail", "query": "Meadow Path, Atlanta, GA 30306" },
+    { "label": "BeltLine Eastside at Irwin Street", "category": "trail", "query": "Atlanta BeltLine and Irwin St NE, Atlanta, GA" },
+    { "label": "BeltLine Eastside at Virginia Avenue", "category": "trail", "query": "Atlanta BeltLine and Virginia Ave NE, Atlanta, GA" },
+    { "label": "BeltLine Southeast at Wylie Street", "category": "trail", "query": "Wylie St SE, Atlanta, GA 30316" },
+    { "label": "BeltLine Southeast at Glenwood Avenue", "category": "trail", "query": "Atlanta BeltLine Southeast Trail and Glenwood Ave SE, Atlanta, GA" },
+    { "label": "BeltLine Westside Mims Street Access", "category": "trail", "query": "1531 Mims St SW, Atlanta, GA 30314" },
+    { "label": "BeltLine Westside Zero Mile Marker", "category": "trail", "query": "White St SW, Atlanta, GA 30310" },
+    { "label": "BeltLine Southside Pittsburgh Start", "category": "trail", "query": "Southside BeltLine Trl, Atlanta, GA 30310" },
+
+    { "label": "PATH400 Mile 0 Garson Drive", "category": "trail", "query": "Garson Dr NE and Piedmont Rd NE, Atlanta, GA" },
+    { "label": "PATH400 Lenox Road Access", "category": "trail", "query": "GA 400 and Lenox Rd NE, Atlanta, GA" },
+    { "label": "PATH400 Old Ivy Crossing", "category": "trail", "query": "Old Ivy Rd NE and PATH400, Atlanta, GA" },
+
+    { "label": "Atlanta Memorial Park Woodward Way", "category": "park", "query": "384 Woodward Way NW, Atlanta, GA 30305" },
+    { "label": "Northside Trail Access", "category": "trail", "query": "Northside Beltline Trail, Atlanta, GA 30318" },
+    { "label": "Tanyard Creek Trail Access", "category": "trail", "query": "Atlanta Beltline Northside Trail, Atlanta, GA 30309" },
+
+    { "label": "Chastain Park Main Entrance", "category": "park", "query": "140 Chastain Park Ave NW, Atlanta, GA 30342" },
+    { "label": "Chastain Park Powers Ferry Edge", "category": "park", "query": "4001 Powers Ferry Rd NW, Atlanta, GA 30342" },
+    { "label": "Chastain Park Stella Drive Edge", "category": "park", "query": "4469 Stella Dr NW, Atlanta, GA 30342" },
+
+    { "label": "Central Park Civic Center Edge", "category": "park", "query": "Central Park Pl NE and Pine St NE, Atlanta, GA" },
+    { "label": "Central Park Ralph McGill Edge", "category": "park", "query": "Central Park Pl NE and Ralph McGill Blvd NE, Atlanta, GA" },
+    { "label": "Brook Run Park Main Entrance", "category": "park", "query": "4770 N Peachtree Rd, Dunwoody, GA 30338" },
+    { "label": "Murphey Candler Park Main Entrance", "category": "park", "query": "1551 W Nancy Creek Dr NE, Atlanta, GA 30319" },
+    { "label": "Murphey Candler Trailhead East", "category": "trail", "query": "Murphey Candler Trailhead East, Brookhaven, GA 30341" },
+
+    { "label": "Cochran Shoals Main Access", "category": "park", "query": "152 Columns Dr, Marietta, GA 30067" },
+    { "label": "Cochran Shoals Interstate North Access", "category": "trail", "query": "1956 Eugene Gunby Rd, Marietta, GA 30067" },
+    { "label": "Powers Island Unit Access", "category": "park", "query": "5450 Interstate N Pkwy, Sandy Springs, GA 30328" },
+    { "label": "Powers Island Trail Access", "category": "trail", "query": "Powers Island Trail, Sandy Springs, GA 30328" },
+    { "label": "Sope Creek Entrance", "category": "park", "query": "Sope Creek Entrance, Marietta, GA 30067" },
+    { "label": "Sope Creek Paper Mill Ruins", "category": "trail", "query": "Paper Mill Rd SE, Marietta, GA 30067" },
+
+    { "label": "Silver Comet Mavell Trailhead", "category": "trail", "query": "4573 Mavell Rd, Smyrna, GA 30082" },
+    { "label": "Silver Comet Official Start", "category": "trail", "query": "4555 Mavell Rd, Smyrna, GA 30082" },
+    { "label": "Silver Comet Connector Terminus", "category": "trail", "query": "Silver Comet Connector Terminus, Smyrna, GA 30082" },
+
+    { "label": "Lullwater Preserve Main Access", "category": "park", "query": "1463 Clifton Rd NE, Decatur, GA 30033" },
+    { "label": "Lullwater Conservation Garden", "category": "park", "query": "845 Lullwater Rd NE, Atlanta, GA 30307" },
+    { "label": "South Peachtree Creek Trail Access", "category": "trail", "query": "South Peachtree Creek Trail, Decatur, GA 30033" }
+  ]
+}

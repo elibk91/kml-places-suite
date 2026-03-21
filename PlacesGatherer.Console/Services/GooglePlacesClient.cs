@@ -25,7 +25,47 @@ public sealed class GooglePlacesClient
         string apiKey,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://places.googleapis.com/v1/places:searchText");
+        SearchTextResponse? payload = null;
+
+        for (var attempt = 0; attempt < RetryDelays.Length; attempt++)
+        {
+            using var request = CreateRequest(search, bounds, apiKey);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                payload = await response.Content.ReadFromJsonAsync<SearchTextResponse>(cancellationToken: cancellationToken);
+                break;
+            }
+
+            if (!IsRetriableStatusCode((int)response.StatusCode) || attempt == RetryDelays.Length - 1)
+            {
+                response.EnsureSuccessStatusCode();
+            }
+
+            await Task.Delay(RetryDelays[attempt], cancellationToken);
+        }
+
+        return payload?.Places?
+            .Where(place => place.Location is not null)
+            .Select(place => new NormalizedPlaceRecord
+            {
+                Query = search.Query,
+                Category = search.Category,
+                PlaceId = place.Id ?? string.Empty,
+                Name = place.DisplayName?.Text ?? string.Empty,
+                FormattedAddress = place.FormattedAddress,
+                Latitude = place.Location!.Latitude,
+                Longitude = place.Location.Longitude,
+                Types = place.Types ?? Array.Empty<string>(),
+                SourceQueryType = search.SourceQueryType
+            })
+            .ToArray() ?? Array.Empty<NormalizedPlaceRecord>();
+    }
+
+    private static HttpRequestMessage CreateRequest(PlacesSearchDefinition search, RectangleBounds bounds, string apiKey)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "https://places.googleapis.com/v1/places:searchText");
         request.Headers.Add("X-Goog-Api-Key", apiKey);
         request.Headers.Add("X-Goog-FieldMask", FieldMask);
         request.Content = JsonContent.Create(new SearchTextRequest
@@ -49,26 +89,18 @@ public sealed class GooglePlacesClient
             }
         });
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var payload = await response.Content.ReadFromJsonAsync<SearchTextResponse>(cancellationToken: cancellationToken);
-        return payload?.Places?
-            .Where(place => place.Location is not null)
-            .Select(place => new NormalizedPlaceRecord
-            {
-                Query = search.Query,
-                Category = search.Category,
-                PlaceId = place.Id ?? string.Empty,
-                Name = place.DisplayName?.Text ?? string.Empty,
-                FormattedAddress = place.FormattedAddress,
-                Latitude = place.Location!.Latitude,
-                Longitude = place.Location.Longitude,
-                Types = place.Types ?? Array.Empty<string>(),
-                SourceQueryType = search.SourceQueryType
-            })
-            .ToArray() ?? Array.Empty<NormalizedPlaceRecord>();
+        return request;
     }
+
+    private static bool IsRetriableStatusCode(int statusCode) =>
+        statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+
+    private static readonly TimeSpan[] RetryDelays =
+    [
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10)
+    ];
 
     public static void ValidateConfig(PlacesGathererConfig config)
     {

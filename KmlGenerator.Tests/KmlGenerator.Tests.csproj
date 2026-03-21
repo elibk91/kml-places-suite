@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ArcGeometryExtractor.Console\ArcGeometryExtractor.Console.csproj" />
     <ProjectReference Include="..\KmlGenerator.Core\KmlGenerator.Core.csproj" />
     <ProjectReference Include="..\KmlGenerator.Api\KmlGenerator.Api.csproj" />
     <ProjectReference Include="..\KmlGenerator.Console\KmlGenerator.Console.csproj" />

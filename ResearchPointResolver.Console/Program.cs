@@ -53,7 +53,7 @@ public static class ResearchPointResolverRunner
                     config.Bounds,
                     apiKey);
 
-                var match = matches.FirstOrDefault();
+                var match = SelectBestMatch(target, matches);
                 if (match is null)
                 {
                     continue;
@@ -99,10 +99,182 @@ public static class ResearchPointResolverRunner
             : (configPath, outputPath);
     }
 
+    private static NormalizedPlaceRecord? SelectBestMatch(ResearchTarget target, IReadOnlyList<NormalizedPlaceRecord> matches)
+    {
+        var ranked = matches
+            .Select(match => new
+            {
+                Record = match,
+                Score = ScoreMatch(target, match)
+            })
+            .Where(candidate => candidate.Score > 0)
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => candidate.Record.Name.Length)
+            .ToArray();
+
+        return ranked.FirstOrDefault()?.Record;
+    }
+
+    private static int ScoreMatch(ResearchTarget target, NormalizedPlaceRecord record)
+    {
+        var score = 0;
+        var nameTokens = Tokenize(record.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var addressTokens = Tokenize(record.FormattedAddress).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var targetTokens = Tokenize(target.Label)
+            .Where(token => !IgnoredLabelTokens.Contains(token, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        var specificTokens = targetTokens
+            .Where(token => !GenericPlaceTokens.Contains(token, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+
+        score += targetTokens.Count(token => nameTokens.Contains(token)) * 8;
+        score += targetTokens.Count(token => addressTokens.Contains(token)) * 4;
+
+        if (target.Category.Equals("park", StringComparison.OrdinalIgnoreCase)
+            || target.Category.Equals("trail", StringComparison.OrdinalIgnoreCase))
+        {
+            var specificMatchCount = specificTokens.Count(token => nameTokens.Contains(token) || addressTokens.Contains(token));
+            if (specificTokens.Length > 0 && specificMatchCount == 0)
+            {
+                return 0;
+            }
+
+            if (record.Types.Any(type => ParkTrailAllowedTypes.Contains(type, StringComparer.OrdinalIgnoreCase)))
+            {
+                score += 12;
+            }
+
+            if (record.Types.Any(type => ParkTrailRejectedTypes.Contains(type, StringComparer.OrdinalIgnoreCase)))
+            {
+                score -= 20;
+            }
+
+            var placeKeywordMatch = nameTokens.Overlaps(ParkTrailNameKeywords) || addressTokens.Overlaps(ParkTrailNameKeywords);
+            if (!record.Types.Any(type => ParkTrailAllowedTypes.Contains(type, StringComparer.OrdinalIgnoreCase))
+                && !placeKeywordMatch)
+            {
+                return 0;
+            }
+
+            if (placeKeywordMatch)
+            {
+                score += 6;
+            }
+        }
+
+        return score;
+    }
+
+    private static IEnumerable<string> Tokenize(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            yield break;
+        }
+
+        var parts = value.Split(
+            [' ', '-', '/', '&', ',', '.', '(', ')', ':', ';', '|'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var part in parts)
+        {
+            yield return part.ToLowerInvariant() switch
+            {
+                "ft" => "fort",
+                _ => part.ToLowerInvariant()
+            };
+        }
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false
     };
+
+    private static readonly string[] IgnoredLabelTokens =
+    [
+        "access",
+        "at",
+        "drive",
+        "east",
+        "edge",
+        "entrance",
+        "gate",
+        "main",
+        "north",
+        "park",
+        "road",
+        "south",
+        "street",
+        "trail",
+        "west"
+    ];
+
+    private static readonly string[] ParkTrailAllowedTypes =
+    [
+        "park",
+        "city_park",
+        "dog_park",
+        "hiking_area",
+        "national_park",
+        "nature_preserve",
+        "playground",
+        "state_park",
+        "tourist_attraction"
+    ];
+
+    private static readonly string[] ParkTrailRejectedTypes =
+    [
+        "apartment_building",
+        "business_center",
+        "bus_station",
+        "bus_stop",
+        "condominium_complex",
+        "health",
+        "housing_complex",
+        "medical_clinic",
+        "parking",
+        "parking_lot",
+        "shopping_mall",
+        "transit_station",
+        "transit_stop"
+    ];
+
+    private static readonly string[] ParkTrailNameKeywords =
+    [
+        "beltline",
+        "greenway",
+        "park",
+        "path400",
+        "preserve",
+        "trail",
+        "trailhead"
+    ];
+
+    private static readonly string[] GenericPlaceTokens =
+    [
+        "access",
+        "avenue",
+        "boulevard",
+        "center",
+        "crossing",
+        "drive",
+        "edge",
+        "entrance",
+        "gate",
+        "marker",
+        "mile",
+        "north",
+        "path",
+        "park",
+        "ramp",
+        "road",
+        "south",
+        "station",
+        "street",
+        "trail",
+        "west"
+    ];
 }
