@@ -1,0 +1,165 @@
+{
+  "bounds": {
+    "north": 34.0659,
+    "south": 33.5969,
+    "east": -83.8594,
+    "west": -84.6769
+  },
+  "secrets": {
+    "provider": "Local",
+    "environmentVariableName": "GoogleMaps__ApiKey"
+  },
+  "searches": [
+    { "query": "Planet Fitness", "category": "gym" },
+    { "query": "LA Fitness", "category": "gym" },
+    { "query": "Esporta Fitness", "category": "gym" },
+    { "query": "Crunch Fitness", "category": "gym" },
+    { "query": "Workout Anytime", "category": "gym" },
+    { "query": "Anytime Fitness", "category": "gym" },
+    { "query": "Snap Fitness", "category": "gym" },
+    { "query": "YMCA", "category": "gym" },
+
+    { "query": "Kroger", "category": "grocery" },
+    { "query": "Publix", "category": "grocery" },
+    { "query": "Walmart", "category": "grocery" },
+    { "query": "Walmart Neighborhood Market", "category": "grocery" },
+    { "query": "Target", "category": "grocery" },
+    { "query": "ALDI", "category": "grocery" },
+    { "query": "Trader Joe's", "category": "grocery" },
+    { "query": "Lidl", "category": "grocery" },
+    { "query": "Whole Foods Market", "category": "grocery" },
+    { "query": "Sprouts Farmers Market", "category": "grocery" },
+
+    { "query": "MARTA Airport Station", "category": "marta" },
+    { "query": "MARTA Arts Center Station", "category": "marta" },
+    { "query": "MARTA Ashby Station", "category": "marta" },
+    { "query": "MARTA Avondale Station", "category": "marta" },
+    { "query": "MARTA Bankhead Station", "category": "marta" },
+    { "query": "MARTA Brookhaven Oglethorpe Station", "category": "marta" },
+    { "query": "MARTA Buckhead Station", "category": "marta" },
+    { "query": "MARTA Chamblee Station", "category": "marta" },
+    { "query": "MARTA Civic Center Station", "category": "marta" },
+    { "query": "MARTA College Park Station", "category": "marta" },
+    { "query": "MARTA Decatur Station", "category": "marta" },
+    { "query": "MARTA Doraville Station", "category": "marta" },
+    { "query": "MARTA Dunwoody Station", "category": "marta" },
+    { "query": "MARTA East Lake Station", "category": "marta" },
+    { "query": "MARTA East Point Station", "category": "marta" },
+    { "query": "MARTA Edgewood Candler Park Station", "category": "marta" },
+    { "query": "MARTA Five Points Station", "category": "marta" },
+    { "query": "MARTA Garnett Station", "category": "marta" },
+    { "query": "MARTA Georgia State Station", "category": "marta" },
+    { "query": "MARTA Hamilton E Holmes Station", "category": "marta" },
+    { "query": "MARTA Indian Creek Station", "category": "marta" },
+    { "query": "MARTA Inman Park Reynoldstown Station", "category": "marta" },
+    { "query": "MARTA Kensington Station", "category": "marta" },
+    { "query": "MARTA King Memorial Station", "category": "marta" },
+    { "query": "MARTA Lakewood Ft McPherson Station", "category": "marta" },
+    { "query": "MARTA Lenox Station", "category": "marta" },
+    { "query": "MARTA Lindbergh Center Station", "category": "marta" },
+    { "query": "MARTA Medical Center Station", "category": "marta" },
+    { "query": "MARTA Midtown Station", "category": "marta" },
+    { "query": "MARTA North Avenue Station", "category": "marta" },
+    { "query": "MARTA North Springs Station", "category": "marta" },
+    { "query": "MARTA Oakland City Station", "category": "marta" },
+    { "query": "MARTA Peachtree Center Station", "category": "marta" },
+    { "query": "MARTA Sandy Springs Station", "category": "marta" },
+    { "query": "MARTA SEC District Station", "category": "marta" },
+    { "query": "MARTA Vine City Station", "category": "marta" },
+    { "query": "MARTA West End Station", "category": "marta" },
+    { "query": "MARTA West Lake Station", "category": "marta" },
+
+    {
+      "query": "Piedmont Park",
+      "category": "park",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "north entrance",
+          "south entrance",
+          "east entrance",
+          "west entrance",
+          "access point"
+        ]
+      }
+    },
+    {
+      "query": "Grant Park",
+      "category": "park",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "north entrance",
+          "south entrance",
+          "access point"
+        ]
+      }
+    },
+    {
+      "query": "Westside Reservoir Park",
+      "category": "park",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "parking entrance",
+          "access point"
+        ]
+      }
+    },
+    {
+      "query": "Atlanta BeltLine Eastside Trail",
+      "category": "trail",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "access",
+          "trailhead",
+          "intersection"
+        ]
+      }
+    },
+    {
+      "query": "Atlanta BeltLine Westside Trail",
+      "category": "trail",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "access",
+          "trailhead",
+          "intersection"
+        ]
+      }
+    },
+    {
+      "query": "Freedom Park Trail",
+      "category": "trail",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "access",
+          "trailhead",
+          "intersection"
+        ]
+      }
+    },
+    {
+      "query": "Silver Comet Trail",
+      "category": "trail",
+      "expansion": {
+        "enabled": true,
+        "templates": [
+          "entrance",
+          "access",
+          "trailhead",
+          "intersection"
+        ]
+      }
+    }
+  ]
+}

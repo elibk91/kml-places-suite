@@ -8,3 +8,4 @@ TestResults/
 *.suo
 *.pfx
 *.secrets.json
+out/

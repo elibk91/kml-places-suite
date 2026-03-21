@@ -1,0 +1,88 @@
+{
+  "bounds": {
+    "north": 33.952876,
+    "south": 33.698669,
+    "east": -84.095141,
+    "west": -84.54903
+  },
+  "secrets": {
+    "provider": "Local",
+    "environmentVariableName": "GoogleMaps__ApiKey"
+  },
+  "tileLatitudeStep": 0.05,
+  "tileLongitudeStep": 0.05,
+  "groups": [
+    {
+      "name": "gyms",
+      "mode": "tiled",
+      "searches": [
+        { "query": "Planet Fitness", "category": "gym" },
+        { "query": "LA Fitness", "category": "gym" },
+        { "query": "Esporta Fitness", "category": "gym" },
+        { "query": "Crunch Fitness", "category": "gym" },
+        { "query": "Workout Anytime", "category": "gym" },
+        { "query": "Anytime Fitness", "category": "gym" },
+        { "query": "Snap Fitness", "category": "gym" },
+        { "query": "YMCA", "category": "gym" }
+      ]
+    },
+    {
+      "name": "groceries",
+      "mode": "tiled",
+      "searches": [
+        { "query": "Kroger", "category": "grocery" },
+        { "query": "Publix", "category": "grocery" },
+        { "query": "Walmart", "category": "grocery" },
+        { "query": "Walmart Neighborhood Market", "category": "grocery" },
+        { "query": "Target Grocery", "category": "grocery" },
+        { "query": "ALDI", "category": "grocery" },
+        { "query": "Trader Joe's", "category": "grocery" },
+        { "query": "Lidl", "category": "grocery" },
+        { "query": "Whole Foods Market", "category": "grocery" },
+        { "query": "Sprouts Farmers Market", "category": "grocery" }
+      ]
+    },
+    {
+      "name": "marta",
+      "mode": "direct",
+      "searches": [
+        { "query": "MARTA Arts Center Station", "category": "marta" },
+        { "query": "MARTA Midtown Station", "category": "marta" },
+        { "query": "MARTA North Avenue Station", "category": "marta" },
+        { "query": "MARTA Civic Center Station", "category": "marta" },
+        { "query": "MARTA Peachtree Center Station", "category": "marta" },
+        { "query": "MARTA Five Points Station", "category": "marta" }
+      ]
+    },
+    {
+      "name": "parks-trails",
+      "mode": "tiled",
+      "searches": [
+        {
+          "query": "Piedmont Park",
+          "category": "park",
+          "expansion": {
+            "enabled": true,
+            "templates": [ "entrance", "south entrance", "access point" ]
+          }
+        },
+        {
+          "query": "Atlanta BeltLine Eastside Trail",
+          "category": "trail",
+          "expansion": {
+            "enabled": true,
+            "templates": [ "access", "trailhead", "intersection" ]
+          }
+        },
+        {
+          "query": "Freedom Park Trail",
+          "category": "trail",
+          "expansion": {
+            "enabled": true,
+            "templates": [ "entrance", "trailhead", "intersection" ]
+          }
+        }
+      ]
+    }
+  ]
+}

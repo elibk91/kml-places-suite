@@ -14,7 +14,7 @@ public static class LocationAssemblerRunner
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
-            await error.WriteLineAsync("Usage: location-assembler --input places.jsonl --output request.json");
+            await error.WriteLineAsync("Usage: location-assembler --input places-1.jsonl --input places-2.jsonl --output request.json");
             return 1;
         }
 
@@ -22,20 +22,23 @@ public static class LocationAssemblerRunner
         {
             var records = new List<NormalizedPlaceRecord>();
 
-            foreach (var line in await File.ReadAllLinesAsync(parsed.Value.InputPath))
+            foreach (var inputPath in parsed.Value.InputPaths)
             {
-                if (string.IsNullOrWhiteSpace(line))
+                foreach (var line in await File.ReadAllLinesAsync(inputPath))
                 {
-                    continue;
-                }
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
 
-                var record = JsonSerializer.Deserialize<NormalizedPlaceRecord>(line, JsonOptions);
-                if (record is null)
-                {
-                    throw new InvalidOperationException("The jsonl input contains an invalid place record.");
-                }
+                    var record = JsonSerializer.Deserialize<NormalizedPlaceRecord>(line, JsonOptions);
+                    if (record is null)
+                    {
+                        throw new InvalidOperationException("The jsonl input contains an invalid place record.");
+                    }
 
-                records.Add(record);
+                    records.Add(record);
+                }
             }
 
             var locations = records
@@ -64,9 +67,9 @@ public static class LocationAssemblerRunner
         }
     }
 
-    private static (string InputPath, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
+    private static (IReadOnlyList<string> InputPaths, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
     {
-        string? inputPath = null;
+        var inputPaths = new List<string>();
         string? outputPath = null;
 
         for (var index = 0; index < args.Count; index++)
@@ -74,7 +77,7 @@ public static class LocationAssemblerRunner
             switch (args[index])
             {
                 case "--input" when index + 1 < args.Count:
-                    inputPath = args[++index];
+                    inputPaths.Add(args[++index]);
                     break;
                 case "--output" when index + 1 < args.Count:
                     outputPath = args[++index];
@@ -82,9 +85,9 @@ public static class LocationAssemblerRunner
             }
         }
 
-        return string.IsNullOrWhiteSpace(inputPath) || string.IsNullOrWhiteSpace(outputPath)
+        return inputPaths.Count == 0 || string.IsNullOrWhiteSpace(outputPath)
             ? null
-            : (inputPath, outputPath);
+            : (inputPaths, outputPath);
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()

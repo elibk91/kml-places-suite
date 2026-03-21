@@ -24,6 +24,9 @@
     <ProjectReference Include="..\KmlGenerator.Api\KmlGenerator.Api.csproj" />
     <ProjectReference Include="..\KmlGenerator.Console\KmlGenerator.Console.csproj" />
     <ProjectReference Include="..\LocationAssembler.Console\LocationAssembler.Console.csproj" />
+    <ProjectReference Include="..\KmlTiler.Console\KmlTiler.Console.csproj" />
+    <ProjectReference Include="..\MasterListBuilder.Console\MasterListBuilder.Console.csproj" />
+    <ProjectReference Include="..\ResearchPointResolver.Console\ResearchPointResolver.Console.csproj" />
   </ItemGroup>
 
 </Project>

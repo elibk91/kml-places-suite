@@ -1,0 +1,24 @@
+{
+  "bounds": {
+    "north": 33.952876,
+    "south": 33.698669,
+    "east": -84.095141,
+    "west": -84.54903
+  },
+  "secrets": {
+    "provider": "Local",
+    "environmentVariableName": "GoogleMaps__ApiKey"
+  },
+  "targets": [
+    {
+      "label": "Piedmont Park Southwest Entrance",
+      "category": "park",
+      "query": "10th St NE and Charles Allen Dr NE, Atlanta, GA"
+    },
+    {
+      "label": "BeltLine at Monroe Drive",
+      "category": "trail",
+      "query": "Atlanta BeltLine and Monroe Dr NE, Atlanta, GA"
+    }
+  ]
+}
