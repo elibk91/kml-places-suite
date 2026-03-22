@@ -4,7 +4,6 @@ using System.Text;
 using System.Collections.Concurrent;
 using KmlGenerator.Core.Exceptions;
 using KmlGenerator.Core.Models;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -26,17 +25,16 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
     public GenerateKmlResult Generate(GenerateKmlRequest request)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         Validate(request);
 
         var bounds = BuildBounds(request);
         var locationsByCategory = request.Locations
             .GroupBy(location => location.Category.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
-        var categoryIndexes = BuildCategoryIndexes(locationsByCategory, request.Step, request.RadiusMiles);
+        var categoryIndexes = BuildCategoryIndexes(locationsByCategory, request.Step, request.RadiusMiles, request.CategoryRadiusMiles);
 
-        var validPoints = ScanValidPoints(bounds, request.Step, request.RadiusMiles, categoryIndexes);
-        var shapeRegions = BuildShapeRegions(bounds, request.Step, request.RadiusMiles, validPoints, categoryIndexes);
+        var validPoints = ScanValidPoints(bounds, request.Step, categoryIndexes);
+        var shapeRegions = BuildShapeRegions(bounds, request.Step, validPoints, categoryIndexes);
         var boundaryPointCount = shapeRegions.Sum(region => region.BoundaryPoints.Count);
         var kml = BuildKml(shapeRegions, bounds, request.Step);
         _logger.LogInformation(
@@ -55,6 +53,70 @@ public sealed class KmlGenerationService : IKmlGenerationService
         };
     }
 
+    public CoverageDiagnosticResult DiagnoseCoverage(GenerateKmlRequest request, double latitude, double longitude, double radiusMiles, int topPerCategory)
+    {
+        Validate(request);
+
+        if (latitude is < -90d or > 90d)
+        {
+            throw new KmlValidationException($"Latitude {latitude} is out of range.");
+        }
+
+        if (longitude is < -180d or > 180d)
+        {
+            throw new KmlValidationException($"Longitude {longitude} is out of range.");
+        }
+
+        if (radiusMiles <= 0d)
+        {
+            throw new KmlValidationException("RadiusMiles must be greater than zero.");
+        }
+
+        if (topPerCategory <= 0)
+        {
+            throw new KmlValidationException("TopPerCategory must be greater than zero.");
+        }
+
+        var locationsByCategory = request.Locations
+            .GroupBy(location => location.Category.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var categoryIndexes = BuildCategoryIndexes(locationsByCategory, request.Step, request.RadiusMiles, request.CategoryRadiusMiles);
+        var diagnostics = new List<CategoryCoverageDiagnostic>(categoryIndexes.Count);
+        var missingCategories = new List<string>();
+
+        foreach (var categoryIndex in categoryIndexes.OrderBy(index => index.Category, StringComparer.OrdinalIgnoreCase))
+        {
+            var nearestLocations = CollectNearestLocations(
+                locationsByCategory[categoryIndex.Category],
+                latitude,
+                longitude,
+                topPerCategory);
+            var effectiveRadiusMiles = radiusMiles > 0d ? radiusMiles : categoryIndex.RadiusMiles;
+            var hasMatchWithinRadius = FindCategoryMatches(categoryIndex, latitude, longitude, effectiveRadiusMiles).Any();
+
+            diagnostics.Add(new CategoryCoverageDiagnostic
+            {
+                Category = categoryIndex.Category,
+                HasMatchWithinRadius = hasMatchWithinRadius,
+                NearestLocations = nearestLocations
+            });
+
+            if (!hasMatchWithinRadius)
+            {
+                missingCategories.Add(categoryIndex.Category);
+            }
+        }
+
+        return new CoverageDiagnosticResult
+        {
+            Latitude = latitude,
+            Longitude = longitude,
+            RadiusMiles = radiusMiles,
+            Categories = diagnostics,
+            MissingCategories = missingCategories
+        };
+    }
+
     public static double GetDistanceMiles(double lat1, double lon1, double lat2, double lon2)
     {
         // This mirrors the original Python script's approximation so the port stays behaviorally consistent.
@@ -66,7 +128,6 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
     private void Validate(GenerateKmlRequest request)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         if (request is null)
         {
             throw new KmlValidationException("The request body is required.");
@@ -85,6 +146,19 @@ public sealed class KmlGenerationService : IKmlGenerationService
         if (request.RadiusMiles <= 0d)
         {
             throw new KmlValidationException("RadiusMiles must be greater than zero.");
+        }
+
+        foreach (var categoryRadius in request.CategoryRadiusMiles)
+        {
+            if (string.IsNullOrWhiteSpace(categoryRadius.Key))
+            {
+                throw new KmlValidationException("CategoryRadiusMiles cannot contain blank category keys.");
+            }
+
+            if (categoryRadius.Value <= 0d)
+            {
+                throw new KmlValidationException($"Category radius for '{categoryRadius.Key}' must be greater than zero.");
+            }
         }
 
         if (request.PaddingDegrees < 0d)
@@ -118,7 +192,6 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
     private BoundingBox BuildBounds(GenerateKmlRequest request)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         var minLat = request.Locations.Min(location => location.Latitude) - request.PaddingDegrees;
         var maxLat = request.Locations.Max(location => location.Latitude) + request.PaddingDegrees;
         var minLon = request.Locations.Min(location => location.Longitude) - request.PaddingDegrees;
@@ -139,10 +212,8 @@ public sealed class KmlGenerationService : IKmlGenerationService
     private HashSet<GridPoint> ScanValidPoints(
         BoundingBox bounds,
         double step,
-        double radiusMiles,
         IReadOnlyList<CategoryIndex> categoryIndexes)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         var validPoints = new ConcurrentBag<GridPoint>();
         var totalLatSteps = (int)Math.Round((bounds.MaxLatitude - bounds.MinLatitude) / step) + 1;
         var totalLonSteps = (int)Math.Round((bounds.MaxLongitude - bounds.MinLongitude) / step) + 1;
@@ -163,7 +234,7 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
                     foreach (var categoryIndex in categoryIndexes)
                     {
-                        if (!HasCategoryMatch(categoryIndex, latitude, longitude, radiusMiles))
+                        if (!HasCategoryMatch(categoryIndex, latitude, longitude, categoryIndex.RadiusMiles))
                         {
                             matchesAllCategories = false;
                             break;
@@ -219,11 +290,9 @@ public sealed class KmlGenerationService : IKmlGenerationService
     private IReadOnlyList<ShapeRegion> BuildShapeRegions(
         BoundingBox bounds,
         double step,
-        double radiusMiles,
         HashSet<GridPoint> validPoints,
         IReadOnlyList<CategoryIndex> categoryIndexes)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         var components = ExtractConnectedComponents(validPoints);
         var shapeRegions = new List<ShapeRegion>(components.Count);
 
@@ -232,7 +301,7 @@ public sealed class KmlGenerationService : IKmlGenerationService
             var componentSet = component.ToHashSet();
             var boundaryPoints = ExtractBoundaryPoints(componentSet);
             var loops = BuildBoundaryLoops(bounds, step, componentSet);
-            var topMatches = CollectTopRelevantLocations(bounds, step, radiusMiles, boundaryPoints, categoryIndexes);
+            var topMatches = CollectTopRelevantLocations(bounds, step, boundaryPoints, categoryIndexes);
 
             shapeRegions.Add(new ShapeRegion(loops, boundaryPoints, topMatches));
         }
@@ -285,20 +354,23 @@ public sealed class KmlGenerationService : IKmlGenerationService
     private IReadOnlyList<CategoryIndex> BuildCategoryIndexes(
         IReadOnlyDictionary<string, LocationInput[]> locationsByCategory,
         double step,
-        double radiusMiles)
+        double defaultRadiusMiles,
+        IReadOnlyDictionary<string, double> categoryRadiusMiles)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
-        var latitudeRadiusDegrees = radiusMiles / 69d;
-        var cellSizeDegrees = Math.Max(step * 4d, latitudeRadiusDegrees);
         var indexes = new List<CategoryIndex>(locationsByCategory.Count);
 
         foreach (var entry in locationsByCategory)
         {
+            var radiusMiles = categoryRadiusMiles.TryGetValue(entry.Key, out var configuredRadiusMiles)
+                ? configuredRadiusMiles
+                : defaultRadiusMiles;
+            var latitudeRadiusDegrees = radiusMiles / 69d;
+            var cellSizeDegrees = Math.Max(step * 4d, latitudeRadiusDegrees);
             var bins = entry.Value
                 .GroupBy(location => new BinKey(GetBinIndex(location.Latitude, cellSizeDegrees), GetBinIndex(location.Longitude, cellSizeDegrees)))
                 .ToDictionary(group => group.Key, group => group.ToArray());
 
-            indexes.Add(new CategoryIndex(entry.Key, bins, cellSizeDegrees, latitudeRadiusDegrees));
+            indexes.Add(new CategoryIndex(entry.Key, bins, cellSizeDegrees, latitudeRadiusDegrees, radiusMiles));
         }
 
         _logger.LogDebug("Built {IndexCount} category indexes", indexes.Count);
@@ -316,11 +388,9 @@ public sealed class KmlGenerationService : IKmlGenerationService
     private IReadOnlyDictionary<string, IReadOnlyList<ScoredLocation>> CollectTopRelevantLocations(
         BoundingBox bounds,
         double step,
-        double radiusMiles,
         IReadOnlyCollection<GridPoint> boundaryPoints,
         IReadOnlyList<CategoryIndex> categoryIndexes)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         var relevantByCategory = categoryIndexes.ToDictionary(
             categoryIndex => categoryIndex.Category,
             _ => new Dictionary<LocationInput, int>(LocationInputComparer.Instance),
@@ -333,7 +403,7 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
             foreach (var categoryIndex in categoryIndexes)
             {
-                foreach (var location in FindCategoryMatches(categoryIndex, latitude, longitude, radiusMiles))
+                foreach (var location in FindCategoryMatches(categoryIndex, latitude, longitude, categoryIndex.RadiusMiles))
                 {
                     var counts = relevantByCategory[categoryIndex.Category];
                     counts[location] = counts.TryGetValue(location, out var count) ? count + 1 : 1;
@@ -385,9 +455,31 @@ public sealed class KmlGenerationService : IKmlGenerationService
         }
     }
 
+    private static IReadOnlyList<CoverageDiagnosticLocation> CollectNearestLocations(
+        IReadOnlyList<LocationInput> locations,
+        double latitude,
+        double longitude,
+        int topPerCategory)
+    {
+        var nearestLocations = locations
+            .Select(location => new CoverageDiagnosticLocation
+            {
+                Label = string.IsNullOrWhiteSpace(location.Label) ? location.Category : location.Label,
+                Latitude = location.Latitude,
+                Longitude = location.Longitude,
+                DistanceMiles = GetDistanceMiles(latitude, longitude, location.Latitude, location.Longitude)
+            })
+            .OrderBy(location => location.DistanceMiles)
+            .ThenBy(location => location.Latitude)
+            .ThenBy(location => location.Longitude)
+            .Take(topPerCategory)
+            .ToArray();
+
+        return nearestLocations;
+    }
+
     private List<List<GeoCoordinate>> BuildBoundaryLoops(BoundingBox bounds, double step, HashSet<GridPoint> validPoints)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         var adjacency = new Dictionary<VertexKey, List<int>>();
         var edges = new List<BoundaryEdge>();
 
@@ -594,7 +686,6 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
     private string BuildKml(IReadOnlyList<ShapeRegion> shapeRegions, BoundingBox bounds, double step)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlGenerationService));
         var builder = new StringBuilder();
         builder.AppendLine("""<?xml version="1.0" encoding="UTF-8"?>""");
         builder.AppendLine("""<kml xmlns="http://www.opengis.net/kml/2.2">""");
@@ -771,7 +862,8 @@ public sealed class KmlGenerationService : IKmlGenerationService
         string Category,
         IReadOnlyDictionary<BinKey, LocationInput[]> Bins,
         double CellSizeDegrees,
-        double LatitudeRadiusDegrees);
+        double LatitudeRadiusDegrees,
+        double RadiusMiles);
 
     private sealed record ShapeRegion(
         IReadOnlyList<List<GeoCoordinate>> BoundaryLoops,

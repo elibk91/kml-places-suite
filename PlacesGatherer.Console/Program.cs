@@ -1,6 +1,5 @@
 using System.Text.Json;
 using KmlSuite.Shared.DependencyInjection;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console;
@@ -71,11 +70,6 @@ public sealed class PlacesGathererRunner : IPlacesGathererApp
 
     public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(PlacesGathererRunner),
-            new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
-
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -136,11 +130,6 @@ public sealed class PlacesGathererRunner : IPlacesGathererApp
 
     private (string ConfigPath, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(PlacesGathererRunner),
-            new Dictionary<string, object?> { ["ArgumentCount"] = args.Count });
-
         string? configPath = null;
         string? outputPath = null;
 

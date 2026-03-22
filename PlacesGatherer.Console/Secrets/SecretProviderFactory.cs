@@ -1,4 +1,3 @@
-using KmlSuite.Shared.Diagnostics;
 using KmlSuite.Shared.Tracing;
 using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
@@ -19,10 +18,6 @@ public sealed class SecretProviderFactory : ISecretProviderFactory
     }
     public ISecretProvider Create(SecretSettings settings)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(SecretProviderFactory),
-            new Dictionary<string, object?> { ["Provider"] = settings.Provider });
         if (settings.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase))
         {
             var provider = new LocalConfigurationSecretProvider(settings, _localProviderLogger);

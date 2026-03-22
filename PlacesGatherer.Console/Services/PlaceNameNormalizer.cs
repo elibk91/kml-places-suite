@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
@@ -19,11 +18,6 @@ public sealed partial class PlaceNameNormalizer : IPlaceNameNormalizer
 
     public IReadOnlyList<NormalizedPlaceRecord> Normalize(IReadOnlyList<NormalizedPlaceRecord> records)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(PlaceNameNormalizer),
-            new Dictionary<string, object?> { ["RecordCount"] = records.Count });
-
         var normalized = records
             .Select(record => record with { Name = BuildBaseName(record) })
             .ToArray();
@@ -67,8 +61,6 @@ public sealed partial class PlaceNameNormalizer : IPlaceNameNormalizer
 
     private void Replace(NormalizedPlaceRecord[] records, NormalizedPlaceRecord updated)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
-
         var index = Array.FindIndex(records, record =>
             record.PlaceId.Equals(updated.PlaceId, StringComparison.Ordinal) &&
             record.Query.Equals(updated.Query, StringComparison.Ordinal) &&
@@ -82,14 +74,12 @@ public sealed partial class PlaceNameNormalizer : IPlaceNameNormalizer
 
     private string BuildBaseName(NormalizedPlaceRecord record)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         var candidate = string.IsNullOrWhiteSpace(record.Name) ? record.Query : record.Name;
         return CollapseWhitespace(candidate);
     }
 
     private string BuildNameWithHint(NormalizedPlaceRecord record)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         var hint = ExtractAddressHint(record.FormattedAddress);
         return string.IsNullOrWhiteSpace(hint)
             ? BuildBaseName(record)
@@ -98,7 +88,6 @@ public sealed partial class PlaceNameNormalizer : IPlaceNameNormalizer
 
     private string ExtractAddressHint(string? formattedAddress)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         if (string.IsNullOrWhiteSpace(formattedAddress))
         {
             return string.Empty;
@@ -118,7 +107,6 @@ public sealed partial class PlaceNameNormalizer : IPlaceNameNormalizer
 
     private string BuildStableSuffix(string placeId)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         if (string.IsNullOrWhiteSpace(placeId))
         {
             return "id";
@@ -129,7 +117,6 @@ public sealed partial class PlaceNameNormalizer : IPlaceNameNormalizer
 
     private string CollapseWhitespace(string value)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         return MultipleWhitespace().Replace(value.Trim(), " ");
     }
 

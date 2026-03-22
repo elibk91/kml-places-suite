@@ -2,6 +2,8 @@
 param(
     [string]$MasterListOutputDirectory = ".\scripts\in\master-lists",
 
+    [string]$CategoryConfigPath = ".\config\authority\category-config.json",
+
     [string]$RunId,
 
     [string]$RunOutputDirectory,
@@ -26,6 +28,10 @@ param(
 
     [string]$TileOutputDirectory,
 
+    [switch]$NoBuild,
+
+    [switch]$KeepIntermediateArtifacts,
+
     [double]$TileNorth = 33.952876,
 
     [double]$TileSouth = 33.698669,
@@ -45,6 +51,7 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDirectory
 . (Join-Path $scriptDirectory "Common.ps1")
 $arcSourceRoot = Join-Path $scriptDirectory "in\arc-sources"
+$categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
 
 if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
     # Keep durable source KML/KMZ in-repo so active workflows do not depend on developer Downloads folders.
@@ -72,28 +79,35 @@ if (-not $RunOutputDirectory) {
     $RunOutputDirectory = Join-Path $scriptDirectory "out\runs\category-workflow\$RunId"
 }
 
+if ($KeepIntermediateArtifacts) {
+    $intermediateRoot = $RunOutputDirectory
+}
+else {
+    $intermediateRoot = Join-Path ([System.IO.Path]::GetTempPath()) "kml-places-suite-category-workflow-$RunId"
+}
+
 if (-not $ArcOutputPath) {
-    $ArcOutputPath = Join-Path $RunOutputDirectory "arc\arc-parks-trails-points.jsonl"
+    $ArcOutputPath = Join-Path $intermediateRoot "arc\arc-parks-trails-points.jsonl"
 }
 
 if (-not $ArcParkOutputPath) {
-    $ArcParkOutputPath = Join-Path $RunOutputDirectory "arc\arc-park-points.jsonl"
+    $ArcParkOutputPath = Join-Path $intermediateRoot "arc\arc-park-points.jsonl"
 }
 
 if (-not $ArcTrailOutputPath) {
-    $ArcTrailOutputPath = Join-Path $RunOutputDirectory "arc\arc-trail-points.jsonl"
+    $ArcTrailOutputPath = Join-Path $intermediateRoot "arc\arc-trail-points.jsonl"
 }
 
 if (-not $ArcFeatureOutputPath) {
-    $ArcFeatureOutputPath = Join-Path $RunOutputDirectory "arc\arc-features.jsonl"
+    $ArcFeatureOutputPath = Join-Path $intermediateRoot "arc\arc-features.jsonl"
 }
 
 if (-not $ArcMartaOutputPath) {
-    $ArcMartaOutputPath = Join-Path $RunOutputDirectory "arc\marta-stations.arc.jsonl"
+    $ArcMartaOutputPath = Join-Path $intermediateRoot "arc\marta-stations.arc.jsonl"
 }
 
 if (-not $FinalRequestOutputPath) {
-    $FinalRequestOutputPath = Join-Path $RunOutputDirectory "requests\atlanta-category-request.arc.json"
+    $FinalRequestOutputPath = Join-Path $intermediateRoot "requests\atlanta-category-request.arc.json"
 }
 
 if (-not $KmlOutputPath) {
@@ -108,6 +122,7 @@ function Assert-WorkflowPrerequisites {
     Write-FunctionTrace -Name $MyInvocation.MyCommand.Name
 
     Assert-PathExists -Path $MasterListOutputDirectory -FailureMessage "MasterListOutputDirectory does not exist."
+    Assert-PathExists -Path $CategoryConfigPath -FailureMessage "CategoryConfigPath does not exist."
 }
 
 function Assert-RequiredMasterLists {
@@ -194,6 +209,10 @@ function Invoke-ArcParkTrailExtraction {
 
     $arguments += "--output"
     $arguments += (Resolve-DisplayPath -Path $ArcOutputPath)
+    $arguments += "--minimum-park-square-feet"
+    $arguments += ([string]$categoryConfig.minimumParkSquareFeet)
+    $arguments += "--minimum-trail-miles"
+    $arguments += ([string]$categoryConfig.minimumTrailMiles)
 
     if ($ArcParkOutputPath) {
         $arguments += "--park-output"
@@ -236,6 +255,7 @@ function Invoke-LocationAssembly {
     foreach ($inputPath in $Inputs) {
         Assert-PathExists -Path $inputPath -FailureMessage "Assembler input '$inputPath' does not exist."
     }
+    Assert-PathExists -Path $CategoryConfigPath -FailureMessage "Category config '$CategoryConfigPath' does not exist."
 
     $arguments = @("run", "--project", (Resolve-DisplayPath -Path $ProjectPath), "--no-build", "--")
     foreach ($inputPath in $Inputs) {
@@ -245,6 +265,8 @@ function Invoke-LocationAssembly {
 
     $arguments += "--output"
     $arguments += (Resolve-DisplayPath -Path $FinalRequestOutputPath)
+    $arguments += "--category-config"
+    $arguments += (Resolve-DisplayPath -Path $CategoryConfigPath)
 
     Ensure-ParentDirectory -Path $FinalRequestOutputPath
     Invoke-DotnetCommand -Description "Assembling final category dataset" -Arguments $arguments -FailureMessage "Location assembler failed."
@@ -314,18 +336,26 @@ $assemblerProjectPath = Join-Path $repoRoot "LocationAssembler.Console\LocationA
 $kmlGeneratorProjectPath = Join-Path $repoRoot "KmlGenerator.Console\KmlGenerator.Console.csproj"
 $kmlTilerProjectPath = Join-Path $repoRoot "KmlTiler.Console\KmlTiler.Console.csproj"
 $requiredMasterLists = @("gyms-master.jsonl", "groceries-master.jsonl")
-$traceDirectory = Join-Path $RunOutputDirectory "trace"
+$traceDirectory = Join-Path $intermediateRoot "trace"
 
 Write-Section -Title "Category Workflow Trace"
-# Solution builds are unstable from inside these Windows PowerShell scripts, but direct project builds are reliable.
-# Build only the projects this workflow executes, then keep every app run on --no-build.
-Invoke-DotnetCommand -Description "Building ARC extractor project" -Arguments @("build", (Resolve-DisplayPath -Path $arcExtractorProjectPath), "-v", "minimal") -FailureMessage "ARC extractor build failed."
-Invoke-DotnetCommand -Description "Building location assembler project" -Arguments @("build", (Resolve-DisplayPath -Path $assemblerProjectPath), "-v", "minimal") -FailureMessage "Location assembler build failed."
-Invoke-DotnetCommand -Description "Building KML generator project" -Arguments @("build", (Resolve-DisplayPath -Path $kmlGeneratorProjectPath), "-v", "minimal") -FailureMessage "KML generator build failed."
-Invoke-DotnetCommand -Description "Building KML tiler project" -Arguments @("build", (Resolve-DisplayPath -Path $kmlTilerProjectPath), "-v", "minimal") -FailureMessage "KML tiler build failed."
-# Keep durable workflow data separate from per-run outputs and only enable trace capture for the runtime execution phase.
-Initialize-TraceArtifacts -RepoRoot $repoRoot -TraceDirectory $traceDirectory
+# Allow callers to skip the upfront builds so multiple scripts can run in parallel without competing on shared
+# project outputs. The workflow still executes every console app with --no-build either way.
+if (-not $NoBuild) {
+    # Solution builds are unstable from inside these Windows PowerShell scripts, but direct project builds are reliable.
+    # Build only the projects this workflow executes, then keep every app run on --no-build.
+    Invoke-DotnetCommand -Description "Building ARC extractor project" -Arguments @("build", (Resolve-DisplayPath -Path $arcExtractorProjectPath), "-v", "minimal") -FailureMessage "ARC extractor build failed."
+    Invoke-DotnetCommand -Description "Building location assembler project" -Arguments @("build", (Resolve-DisplayPath -Path $assemblerProjectPath), "-v", "minimal") -FailureMessage "Location assembler build failed."
+    Invoke-DotnetCommand -Description "Building KML generator project" -Arguments @("build", (Resolve-DisplayPath -Path $kmlGeneratorProjectPath), "-v", "minimal") -FailureMessage "KML generator build failed."
+    Invoke-DotnetCommand -Description "Building KML tiler project" -Arguments @("build", (Resolve-DisplayPath -Path $kmlTilerProjectPath), "-v", "minimal") -FailureMessage "KML tiler build failed."
+}
 try {
+    if ($KeepIntermediateArtifacts) {
+        # Keep durable workflow data separate from per-run outputs and only enable trace capture when the caller
+        # explicitly asks to retain proof/intermediate artifacts.
+        Initialize-TraceArtifacts -RepoRoot $repoRoot -TraceDirectory $traceDirectory
+    }
+
     Write-ParameterTrace -Values @{
         ArcFeatureOutputPath = $ArcFeatureOutputPath
         ArcMartaOutputPath = $ArcMartaOutputPath
@@ -334,6 +364,7 @@ try {
         ArcTrailOutputPath = $ArcTrailOutputPath
         FinalRequestOutputPath = $FinalRequestOutputPath
         KmlOutputPath = $KmlOutputPath
+        CategoryConfigPath = $CategoryConfigPath
         MasterListOutputDirectory = $MasterListOutputDirectory
         RunId = $RunId
         RunOutputDirectory = $RunOutputDirectory
@@ -357,9 +388,22 @@ try {
     Invoke-LocationAssembly -ProjectPath $assemblerProjectPath -Inputs $assemblerInputPaths
     Invoke-KmlGeneration -ProjectPath $kmlGeneratorProjectPath
     Invoke-TileGeneration -ProjectPath $kmlTilerProjectPath
+
+    if (-not $KeepIntermediateArtifacts) {
+        Get-ChildItem -Path (Resolve-DisplayPath -Path $TileOutputDirectory) -File -Filter *.request.json -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path (Join-Path (Resolve-DisplayPath -Path $TileOutputDirectory) "tiles-summary.json") -Force -ErrorAction SilentlyContinue
+    }
 }
 finally {
-    Complete-TraceArtifacts
+    if ($KeepIntermediateArtifacts) {
+        Complete-TraceArtifacts
+    }
+    else {
+        Remove-Item Env:KMLSUITE_TRACE_EVENTS_PATH -ErrorAction SilentlyContinue
+        if (Test-Path $intermediateRoot) {
+            Remove-Item -Path $intermediateRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 Write-Section -Title "Category Workflow Complete"
 

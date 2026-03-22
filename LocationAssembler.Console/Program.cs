@@ -1,7 +1,6 @@
 using System.Text.Json;
 using KmlGenerator.Core.Models;
 using KmlSuite.Shared.DependencyInjection;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using LocationAssembler.Console;
@@ -52,7 +51,6 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
 
     public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(LocationAssemblerRunner), new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -62,6 +60,7 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
 
         try
         {
+            var categorySelection = await LoadCategorySelectionAsync(parsed.Value.CategoryConfigPath);
             var records = new List<NormalizedPlaceRecord>();
 
             foreach (var inputPath in parsed.Value.InputPaths)
@@ -86,27 +85,32 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                 _logger.LogInformation("Read {FileRecordCount} normalized records from {InputPath}", fileRecordCount, inputPath);
             }
 
-            var locations = records
-                .Select(record => new LocationInput
+            var locations = new List<LocationInput>(records.Count);
+            foreach (var record in records)
+            {
+                var location = MapToLocationInput(record, categorySelection);
+                if (location is not null)
                 {
-                    Latitude = record.Latitude,
-                    Longitude = record.Longitude,
-                    Category = record.Category,
-                    Label = record.Name
-                })
+                    locations.Add(location);
+                }
+            }
+
+            var distinctLocations = locations
                 .Distinct(LocationInputComparer.Instance)
                 .ToArray();
 
-            _logger.LogInformation("Deduplicated {InputRecordCount} records into {UniqueLocationCount} unique locations", records.Count, locations.Length);
+            _logger.LogInformation("Deduplicated {InputRecordCount} records into {UniqueLocationCount} unique locations", records.Count, distinctLocations.Length);
 
             var request = new GenerateKmlRequest
             {
-                Locations = locations
+                Locations = distinctLocations,
+                RadiusMiles = categorySelection.DefaultRadiusMiles,
+                CategoryRadiusMiles = categorySelection.CategoryRadiusMiles
             };
 
             await File.WriteAllTextAsync(parsed.Value.OutputPath, JsonSerializer.Serialize(request, JsonOptions));
-            _logger.LogInformation("Assembled {RecordCount} records into {LocationCount} unique locations at {OutputPath}", records.Count, locations.Length, parsed.Value.OutputPath);
-            await output.WriteLineAsync($"Saved {locations.Length} unique points to {parsed.Value.OutputPath}");
+            _logger.LogInformation("Assembled {RecordCount} records into {LocationCount} unique locations at {OutputPath}", records.Count, distinctLocations.Length, parsed.Value.OutputPath);
+            await output.WriteLineAsync($"Saved {distinctLocations.Length} unique points to {parsed.Value.OutputPath}");
             return 0;
         }
         catch (Exception exception)
@@ -117,11 +121,42 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         }
     }
 
-    private (IReadOnlyList<string> InputPaths, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
+    private static async Task<CategorySelection> LoadCategorySelectionAsync(string? categoryConfigPath)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(LocationAssemblerRunner));
+        if (string.IsNullOrWhiteSpace(categoryConfigPath))
+        {
+            return CategorySelection.Default;
+        }
+
+        var configText = await File.ReadAllTextAsync(categoryConfigPath);
+        var config = JsonSerializer.Deserialize<CategorySelectionFile>(configText, JsonOptions)
+                     ?? throw new InvalidOperationException("The category config file did not contain a valid JSON payload.");
+
+        return CategorySelection.FromConfig(config);
+    }
+
+    private static LocationInput? MapToLocationInput(NormalizedPlaceRecord record, CategorySelection selection)
+    {
+        var category = selection.Normalize(record.Category);
+        if (category is null)
+        {
+            return null;
+        }
+
+        return new LocationInput
+        {
+            Latitude = record.Latitude,
+            Longitude = record.Longitude,
+            Category = category,
+            Label = record.Name
+        };
+    }
+
+    private (IReadOnlyList<string> InputPaths, string OutputPath, string? CategoryConfigPath)? ParseArguments(IReadOnlyList<string> args)
+    {
         var inputPaths = new List<string>();
         string? outputPath = null;
+        string? categoryConfigPath = null;
 
         for (var index = 0; index < args.Count; index++)
         {
@@ -133,12 +168,111 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                 case "--output" when index + 1 < args.Count:
                     outputPath = args[++index];
                     break;
+                case "--category-config" when index + 1 < args.Count:
+                    categoryConfigPath = args[++index];
+                    break;
             }
         }
 
         return inputPaths.Count == 0 || string.IsNullOrWhiteSpace(outputPath)
             ? null
-            : (inputPaths, outputPath);
+            : (inputPaths, outputPath, categoryConfigPath);
+    }
+
+    private sealed class CategorySelection
+    {
+        public static CategorySelection Default { get; } = new([], [], 0.5d, new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase));
+
+        private readonly Dictionary<string, string> _groupedCategories;
+        private readonly HashSet<string> _includedCategories;
+        public double DefaultRadiusMiles { get; }
+        public IReadOnlyDictionary<string, double> CategoryRadiusMiles { get; }
+
+        private CategorySelection(
+            Dictionary<string, string> groupedCategories,
+            HashSet<string> includedCategories,
+            double defaultRadiusMiles,
+            Dictionary<string, double> categoryRadiusMiles)
+        {
+            _groupedCategories = groupedCategories;
+            _includedCategories = includedCategories;
+            DefaultRadiusMiles = defaultRadiusMiles;
+            CategoryRadiusMiles = categoryRadiusMiles;
+        }
+
+        public static CategorySelection FromConfig(CategorySelectionFile config)
+        {
+            var groupedCategories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var group in config.CategoryGroups)
+            {
+                if (string.IsNullOrWhiteSpace(group.TargetCategory))
+                {
+                    continue;
+                }
+
+                foreach (var sourceCategory in group.SourceCategories)
+                {
+                    if (!string.IsNullOrWhiteSpace(sourceCategory))
+                    {
+                        groupedCategories[sourceCategory.Trim()] = group.TargetCategory.Trim();
+                    }
+                }
+            }
+
+            var includedCategories = config.IncludedCategories
+                .Where(static category => !string.IsNullOrWhiteSpace(category))
+                .Select(static category => category.Trim())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var categoryRadiusMiles = config.CategoryRadiusMiles
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Key))
+                .ToDictionary(entry => entry.Key.Trim(), entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+
+            return new CategorySelection(groupedCategories, includedCategories, config.DefaultRadiusMiles, categoryRadiusMiles);
+        }
+
+        public string? Normalize(string rawCategory)
+        {
+            if (string.IsNullOrWhiteSpace(rawCategory))
+            {
+                return null;
+            }
+
+            var normalized = rawCategory.Trim();
+            if (_groupedCategories.TryGetValue(normalized, out var groupedCategory))
+            {
+                normalized = groupedCategory;
+            }
+
+            if (_includedCategories.Count > 0 && !_includedCategories.Contains(normalized))
+            {
+                return null;
+            }
+
+            return normalized;
+        }
+    }
+
+    private sealed class CategorySelectionFile
+    {
+        public double DefaultRadiusMiles { get; init; } = 0.5d;
+
+        public IReadOnlyList<string> IncludedCategories { get; init; } = Array.Empty<string>();
+
+        public IReadOnlyDictionary<string, double> CategoryRadiusMiles { get; init; } = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        public double MinimumParkSquareFeet { get; init; }
+
+        public double MinimumTrailMiles { get; init; }
+
+        public IReadOnlyList<CategoryGroupFile> CategoryGroups { get; init; } = Array.Empty<CategoryGroupFile>();
+    }
+
+    private sealed class CategoryGroupFile
+    {
+        public string TargetCategory { get; init; } = string.Empty;
+
+        public IReadOnlyList<string> SourceCategories { get; init; } = Array.Empty<string>();
     }
 
     private sealed class LocationInputComparer : IEqualityComparer<LocationInput>

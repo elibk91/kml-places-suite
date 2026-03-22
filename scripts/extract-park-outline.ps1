@@ -9,7 +9,11 @@ param(
 
     [string]$RunOutputDirectory,
 
-    [string]$OutputPath
+    [string]$OutputPath,
+
+    [switch]$NoBuild,
+
+    [switch]$KeepIntermediateArtifacts
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,70 +53,90 @@ if (-not $OutputPath) {
     $OutputPath = Join-Path $RunOutputDirectory "kml\$safeParkName.kml"
 }
 
-$allPointsOutputPath = Join-Path $RunOutputDirectory "arc\arc-parks-trails-points.jsonl"
-$parkPointsOutputPath = Join-Path $RunOutputDirectory "arc\arc-park-points.jsonl"
-$trailPointsOutputPath = Join-Path $RunOutputDirectory "arc\arc-trail-points.jsonl"
-$featureOutputPath = Join-Path $RunOutputDirectory "arc\arc-features.jsonl"
-$parkOutlineOutputPath = Join-Path $RunOutputDirectory "kml\all-park-outlines.kml"
+$intermediateRoot = if ($KeepIntermediateArtifacts) {
+    $RunOutputDirectory
+}
+else {
+    Join-Path ([System.IO.Path]::GetTempPath()) "kml-places-suite-extract-park-outline-$RunId"
+}
+
+$allPointsOutputPath = Join-Path $intermediateRoot "arc\arc-parks-trails-points.jsonl"
+$parkPointsOutputPath = Join-Path $intermediateRoot "arc\arc-park-points.jsonl"
 
 foreach ($inputPath in $ArcInputPaths) {
     Assert-PathExists -Path $inputPath -FailureMessage "ARC input '$inputPath' does not exist."
 }
 
-# Solution builds are unstable from inside these Windows PowerShell scripts, but direct project builds are reliable.
-# Build only the project this diagnostic runs, then execute it with --no-build.
-Invoke-DotnetCommand -Description "Building ARC extractor project" -Arguments @("build", (Resolve-DisplayPath -Path $extractorProjectPath), "-v", "minimal") -FailureMessage "ARC extractor build failed."
+# Allow callers to skip the upfront build so multiple scripts can run in parallel without competing on shared
+# project outputs. The app execution still stays on --no-build either way.
+if (-not $NoBuild) {
+    # Solution builds are unstable from inside these Windows PowerShell scripts, but direct project builds are reliable.
+    # Build only the project this diagnostic runs, then execute it with --no-build.
+    Invoke-DotnetCommand -Description "Building ARC extractor project" -Arguments @("build", (Resolve-DisplayPath -Path $extractorProjectPath), "-v", "minimal") -FailureMessage "ARC extractor build failed."
+}
 
 # This diagnostic must flow through the same extractor code path as the real workflow so park filtering happens
-# after ARC parsing, metadata classification, park-size filtering, and outline generation have already run.
+# after ARC parsing, metadata classification, and park-size filtering have already run. The final KML should show
+# the exact point set the main workflow consumes, not a separate polygon-outline diagnostic artifact.
 $arguments = @("run", "--project", (Resolve-DisplayPath -Path $extractorProjectPath), "--no-build", "--")
 foreach ($inputPath in $ArcInputPaths) {
     $arguments += "--input"
     $arguments += (Resolve-DisplayPath -Path $inputPath)
 }
 
-$arguments += "--output"
-$arguments += (Resolve-DisplayPath -Path $allPointsOutputPath)
 $arguments += "--park-output"
 $arguments += (Resolve-DisplayPath -Path $parkPointsOutputPath)
-$arguments += "--trail-output"
-$arguments += (Resolve-DisplayPath -Path $trailPointsOutputPath)
-$arguments += "--feature-output"
-$arguments += (Resolve-DisplayPath -Path $featureOutputPath)
-$arguments += "--park-outline-kml-output"
-$arguments += (Resolve-DisplayPath -Path $parkOutlineOutputPath)
+$arguments += "--output"
+$arguments += (Resolve-DisplayPath -Path $allPointsOutputPath)
 
 Ensure-ParentDirectory -Path $allPointsOutputPath
 Ensure-ParentDirectory -Path $parkPointsOutputPath
-Ensure-ParentDirectory -Path $trailPointsOutputPath
-Ensure-ParentDirectory -Path $featureOutputPath
-Ensure-ParentDirectory -Path $parkOutlineOutputPath
-Invoke-DotnetCommand -Description "Extracting park outlines through ArcGeometryExtractor" -Arguments $arguments -FailureMessage "ARC geometry extractor failed."
-Assert-PathExists -Path $parkOutlineOutputPath -FailureMessage "Extractor did not produce the park outline KML."
+try {
+    Invoke-DotnetCommand -Description "Extracting park points through ArcGeometryExtractor" -Arguments $arguments -FailureMessage "ARC geometry extractor failed."
+    Assert-PathExists -Path $parkPointsOutputPath -FailureMessage "Extractor did not produce the park point JSONL."
 
-[xml]$xml = Get-Content $parkOutlineOutputPath
-$namespaceManager = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
-$namespaceManager.AddNamespace("k", "http://www.opengis.net/kml/2.2")
+    $matchingPoints = @(Get-Content $parkPointsOutputPath |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_ | ConvertFrom-Json } |
+        Where-Object {
+            $_.Name -like "*$ParkName*" -or $_.Query -like "*$ParkName*"
+        })
 
-$folders = @($xml.SelectNodes("//k:Folder", $namespaceManager))
-foreach ($folder in $folders) {
-    $nameNode = $folder.SelectSingleNode("./k:name", $namespaceManager)
-    $name = if ($null -ne $nameNode) { $nameNode.InnerText } else { "" }
-    if ($name -notlike "*$ParkName*") {
-        [void]$folder.ParentNode.RemoveChild($folder)
+    if ($matchingPoints.Count -eq 0) {
+        throw "No park points matched '$ParkName' in extractor output."
+    }
+
+    $directory = Split-Path -Parent $OutputPath
+    if (-not [string]::IsNullOrWhiteSpace($directory)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+
+    $escapedParkName = [System.Security.SecurityElement]::Escape($ParkName)
+    $kmlBuilder = [System.Text.StringBuilder]::new()
+    [void]$kmlBuilder.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
+    [void]$kmlBuilder.AppendLine('<kml xmlns="http://www.opengis.net/kml/2.2">')
+    [void]$kmlBuilder.AppendLine('  <Document>')
+    [void]$kmlBuilder.AppendLine("    <name>$escapedParkName</name>")
+    [void]$kmlBuilder.AppendLine('    <Style id="park-point"><IconStyle><scale>0.5</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><color>ff00aa00</color></IconStyle></Style>')
+
+    foreach ($point in $matchingPoints) {
+        $label = [System.Security.SecurityElement]::Escape([string]$point.Name)
+        [void]$kmlBuilder.AppendLine('    <Placemark>')
+        [void]$kmlBuilder.AppendLine("      <name>$label</name>")
+        [void]$kmlBuilder.AppendLine('      <styleUrl>#park-point</styleUrl>')
+        [void]$kmlBuilder.AppendLine('      <Point>')
+        [void]$kmlBuilder.AppendLine("        <coordinates>$($point.Longitude),$($point.Latitude),0</coordinates>")
+        [void]$kmlBuilder.AppendLine('      </Point>')
+        [void]$kmlBuilder.AppendLine('    </Placemark>')
+    }
+
+    [void]$kmlBuilder.AppendLine('  </Document>')
+    [void]$kmlBuilder.AppendLine('</kml>')
+    Set-Content -Path $OutputPath -Value $kmlBuilder.ToString()
+    Write-Host "Saved $($matchingPoints.Count) point placemarks for '$ParkName' to $OutputPath"
+}
+finally {
+    if (-not $KeepIntermediateArtifacts -and (Test-Path $intermediateRoot)) {
+        Remove-Item -Path $intermediateRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-
-$remainingFolders = @($xml.SelectNodes("//k:Folder", $namespaceManager))
-if ($remainingFolders.Count -eq 0) {
-    throw "No park folders matched '$ParkName' in extractor output."
-}
-
-$directory = Split-Path -Parent $OutputPath
-if (-not [string]::IsNullOrWhiteSpace($directory)) {
-    New-Item -ItemType Directory -Path $directory -Force | Out-Null
-}
-
-$xml.Save($OutputPath)
-$placemarkCount = @($xml.SelectNodes("//k:Placemark", $namespaceManager)).Count
-Write-Host "Saved $placemarkCount placemarks for '$ParkName' to $OutputPath"

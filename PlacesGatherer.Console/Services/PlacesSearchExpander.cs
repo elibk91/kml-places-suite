@@ -1,4 +1,3 @@
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
@@ -18,16 +17,6 @@ public sealed class PlacesSearchExpander : IPlacesSearchExpander
 
     public IReadOnlyList<PlacesSearchDefinition> Expand(PlacesSearchDefinition search)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(PlacesSearchExpander),
-            new Dictionary<string, object?>
-            {
-                ["Query"] = search.Query,
-                ["Category"] = search.Category,
-                ["HasExpansion"] = search.Expansion?.Enabled == true
-            });
-
         var expanded = new List<PlacesSearchDefinition>
         {
             search with { SourceQueryType = "base", Expansion = null }

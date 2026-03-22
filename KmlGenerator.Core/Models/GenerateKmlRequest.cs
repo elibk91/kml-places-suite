@@ -11,5 +11,7 @@ public sealed class GenerateKmlRequest
 
     public double RadiusMiles { get; init; } = 0.5d;
 
+    public IReadOnlyDictionary<string, double> CategoryRadiusMiles { get; init; } = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
     public double PaddingDegrees { get; init; } = 0.01d;
 }

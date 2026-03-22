@@ -1,6 +1,5 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
@@ -29,19 +28,6 @@ public sealed class GooglePlacesClient : IGooglePlacesClient
         string apiKey,
         CancellationToken cancellationToken = default)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(GooglePlacesClient),
-            new Dictionary<string, object?>
-            {
-                ["Query"] = search.Query,
-                ["Category"] = search.Category,
-                ["South"] = bounds.South,
-                ["North"] = bounds.North,
-                ["West"] = bounds.West,
-                ["East"] = bounds.East
-            });
-
         SearchTextResponse? payload = null;
 
         for (var attempt = 0; attempt < RetryDelays.Length; attempt++)
@@ -104,11 +90,6 @@ public sealed class GooglePlacesClient : IGooglePlacesClient
 
     private HttpRequestMessage CreateRequest(PlacesSearchDefinition search, RectangleBounds bounds, string apiKey)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(GooglePlacesClient),
-            new Dictionary<string, object?> { ["Query"] = search.Query });
-
         var request = new HttpRequestMessage(HttpMethod.Post, "https://places.googleapis.com/v1/places:searchText");
         request.Headers.Add("X-Goog-Api-Key", apiKey);
         request.Headers.Add("X-Goog-FieldMask", FieldMask);
@@ -138,10 +119,6 @@ public sealed class GooglePlacesClient : IGooglePlacesClient
 
     private bool IsRetriableStatusCode(int statusCode)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(GooglePlacesClient),
-            new Dictionary<string, object?> { ["StatusCode"] = statusCode });
         return statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504;
     }
 

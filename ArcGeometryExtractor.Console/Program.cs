@@ -8,7 +8,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using KmlSuite.Shared.DependencyInjection;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
@@ -42,6 +41,8 @@ public static class ArcGeometryExtractorProgram
 
 public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 {
+    private const double DefaultMinimumParkSquareFeet = 800d;
+    private const double DefaultMinimumTrailMiles = 1.65d;
     private readonly ILogger<ArcGeometryExtractorApp> _logger;
 
     public ArcGeometryExtractorApp(ILogger<ArcGeometryExtractorApp> logger)
@@ -51,7 +52,6 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 
     public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(ArcGeometryExtractorApp), new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -106,7 +106,7 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 
                     if (polygons.Length > 0)
                     {
-                        if (!ShouldKeepParkFeature(metadata))
+                        if (!ShouldKeepParkFeature(metadata, parsed.Value.MinimumParkSquareFeet))
                         {
                             continue;
                         }
@@ -203,7 +203,7 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                     }
 
                     if (category.Equals("trail", StringComparison.OrdinalIgnoreCase)
-                        && !ShouldKeepTrailFeature(metadata, linePoints))
+                        && !ShouldKeepTrailFeature(metadata, linePoints, parsed.Value.MinimumTrailMiles))
                     {
                         continue;
                     }
@@ -666,29 +666,30 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
     private static string? GetMetadataValue(IReadOnlyDictionary<string, string> metadata, string key) =>
         metadata.TryGetValue(key, out var value) ? value : null;
 
-    private static bool ShouldKeepParkFeature(IReadOnlyDictionary<string, string> metadata)
+    private static bool ShouldKeepParkFeature(IReadOnlyDictionary<string, string> metadata, double minimumParkSquareFeet)
     {
         if (TryGetSquareFeet(metadata, out var squareFeet))
         {
-            return squareFeet >= MinimumParkSquareFeet;
+            return squareFeet >= minimumParkSquareFeet;
         }
 
         return true;
     }
 
-    private static bool ShouldKeepTrailFeature(IReadOnlyDictionary<string, string> metadata, IReadOnlyList<GeoPoint> linePoints)
+    private static bool ShouldKeepTrailFeature(IReadOnlyDictionary<string, string> metadata, IReadOnlyList<GeoPoint> linePoints, double minimumTrailMiles)
     {
+        var minimumTrailFeet = minimumTrailMiles * 5_280d;
         if (TryGetLengthMiles(metadata, out var miles))
         {
-            return miles >= MinimumTrailMiles;
+            return miles >= minimumTrailMiles;
         }
 
         if (TryGetShapeLengthFeet(metadata, out var feet))
         {
-            return feet >= MinimumTrailFeet;
+            return feet >= minimumTrailFeet;
         }
 
-        return ComputePolylineLengthFeet(linePoints) >= MinimumTrailFeet;
+        return ComputePolylineLengthFeet(linePoints) >= minimumTrailFeet;
     }
 
     private static bool TryGetSquareFeet(IReadOnlyDictionary<string, string> metadata, out double squareFeet)
@@ -846,15 +847,16 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         await File.WriteAllTextAsync(outputPath, builder.ToString());
     }
 
-    private (IReadOnlyList<string> InputPaths, string OutputPath, string? ParkOutputPath, string? TrailOutputPath, string? FeatureOutputPath, string? ParkOutlineKmlOutputPath)? ParseArguments(IReadOnlyList<string> args)
+    private (IReadOnlyList<string> InputPaths, string OutputPath, string? ParkOutputPath, string? TrailOutputPath, string? FeatureOutputPath, string? ParkOutlineKmlOutputPath, double MinimumParkSquareFeet, double MinimumTrailMiles)? ParseArguments(IReadOnlyList<string> args)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(ArcGeometryExtractorApp));
         var inputPaths = new List<string>();
         string? outputPath = null;
         string? parkOutputPath = null;
         string? trailOutputPath = null;
         string? featureOutputPath = null;
         string? parkOutlineKmlOutputPath = null;
+        var minimumParkSquareFeet = DefaultMinimumParkSquareFeet;
+        var minimumTrailMiles = DefaultMinimumTrailMiles;
 
         for (var index = 0; index < args.Count; index++)
         {
@@ -878,12 +880,18 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 case "--park-outline-kml-output" when index + 1 < args.Count:
                     parkOutlineKmlOutputPath = args[++index];
                     break;
+                case "--minimum-park-square-feet" when index + 1 < args.Count:
+                    minimumParkSquareFeet = double.Parse(args[++index], CultureInfo.InvariantCulture);
+                    break;
+                case "--minimum-trail-miles" when index + 1 < args.Count:
+                    minimumTrailMiles = double.Parse(args[++index], CultureInfo.InvariantCulture);
+                    break;
             }
         }
 
         return inputPaths.Count == 0 || string.IsNullOrWhiteSpace(outputPath)
             ? null
-            : (inputPaths, outputPath, parkOutputPath, trailOutputPath, featureOutputPath, parkOutlineKmlOutputPath);
+            : (inputPaths, outputPath, parkOutputPath, trailOutputPath, featureOutputPath, parkOutlineKmlOutputPath, minimumParkSquareFeet, minimumTrailMiles);
     }
 
     private static readonly Regex MetadataRowPattern = new(
@@ -891,9 +899,6 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
     private const double SquareFeetPerAcre = 43_560d;
-    private const double MinimumParkSquareFeet = 800d;
-    private const double MinimumTrailMiles = 1.65d;
-    private const double MinimumTrailFeet = MinimumTrailMiles * 5_280d;
     private const double ParkOutlineSpacingFeet = 50d;
 
     private static readonly HashSet<string> AllowedTrailTypes = new(StringComparer.OrdinalIgnoreCase)

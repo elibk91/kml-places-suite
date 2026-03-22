@@ -1,7 +1,6 @@
 using KmlGenerator.Core.Exceptions;
 using KmlGenerator.Core.Models;
 using KmlGenerator.Core.Services;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KmlGenerator.Api.Controllers;
@@ -27,7 +26,6 @@ public sealed class KmlController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public ActionResult<GenerateKmlResult> Generate([FromBody] GenerateKmlRequest request)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlController));
         try
         {
             var result = _kmlGenerationService.Generate(request);
@@ -46,7 +44,6 @@ public sealed class KmlController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public IActionResult GenerateFile([FromBody] GenerateKmlRequest request)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlController));
         try
         {
             var result = _kmlGenerationService.Generate(request);

@@ -1,4 +1,3 @@
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
@@ -17,11 +16,6 @@ public sealed class LocalConfigurationSecretProvider : ISecretProvider
 
     public string GetGoogleMapsApiKey()
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(LocalConfigurationSecretProvider),
-            new Dictionary<string, object?> { ["EnvironmentVariableName"] = _settings.EnvironmentVariableName });
-
         var apiKey = Environment.GetEnvironmentVariable(_settings.EnvironmentVariableName);
         if (!string.IsNullOrWhiteSpace(apiKey))
         {

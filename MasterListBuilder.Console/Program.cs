@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text;
 using KmlSuite.Shared.DependencyInjection;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MasterListBuilder.Console;
@@ -66,11 +65,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(MasterListBuilderRunner),
-            new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
-
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -144,11 +138,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
         IGooglePlacesClient client,
         string apiKey)
     {
-        using var _ = MethodTrace.Enter(
-            _logger,
-            nameof(MasterListBuilderRunner),
-            new Dictionary<string, object?> { ["GroupName"] = group.Name });
-
         var records = new List<NormalizedPlaceRecord>();
 
         for (var north = bounds.North; north > bounds.South; north -= tileLatitudeStep)
@@ -181,13 +170,11 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private IReadOnlyList<PlacesSearchDefinition> ExpandGroupSearches(PlacesSearchDefinition search)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         return _searchExpander.Expand(search);
     }
 
     private List<NormalizedPlaceRecord> Deduplicate(IEnumerable<NormalizedPlaceRecord> records)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         var byIdentity = new Dictionary<string, NormalizedPlaceRecord>(StringComparer.OrdinalIgnoreCase);
         var byCoordinates = new Dictionary<string, NormalizedPlaceRecord>(StringComparer.OrdinalIgnoreCase);
 
@@ -215,7 +202,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private IReadOnlyList<NormalizedPlaceRecord> FilterRecords(SearchGroup group, IReadOnlyList<NormalizedPlaceRecord> records)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (!group.ApplyCategoryFilter)
         {
             return records;
@@ -231,7 +217,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private bool IsLikelyGym(NormalizedPlaceRecord record)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (ContainsRejectKeyword(record.Name) || ContainsRejectKeyword(record.FormattedAddress))
         {
             return false;
@@ -254,7 +239,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private bool IsLikelyGrocery(NormalizedPlaceRecord record)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (ContainsRejectKeyword(record.Name) || ContainsRejectKeyword(record.FormattedAddress))
         {
             return false;
@@ -283,7 +267,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private bool MatchesExpectedChain(NormalizedPlaceRecord record)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (ChainAliases.TryGetValue(record.Query, out var aliases))
         {
             return aliases.Any(alias => ContainsChainName(record.Name, alias));
@@ -294,7 +277,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private bool ContainsChainName(string? placeName, string expectedChain)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (string.IsNullOrWhiteSpace(placeName) || string.IsNullOrWhiteSpace(expectedChain))
         {
             return false;
@@ -316,7 +298,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private string NormalizeForChainMatch(string value)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         var builder = new StringBuilder(value.Length);
         foreach (var character in value.ToLowerInvariant())
         {
@@ -351,7 +332,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private bool ContainsRejectKeyword(string? value)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (string.IsNullOrWhiteSpace(value))
         {
             return false;
@@ -410,7 +390,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private void ValidateConfig(MasterListConfig config)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (config.TileLatitudeStep <= 0d || config.TileLongitudeStep <= 0d)
         {
             throw new InvalidOperationException("TileLatitudeStep and TileLongitudeStep must be greater than zero.");
@@ -452,7 +431,6 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
 
     private (string ConfigPath, string OutputDirectory)? ParseArguments(IReadOnlyList<string> args)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         string? configPath = null;
         string? outputDirectory = null;
 

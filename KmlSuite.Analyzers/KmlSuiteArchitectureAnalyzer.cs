@@ -14,7 +14,7 @@ public sealed class KmlSuiteArchitectureAnalyzer : DiagnosticAnalyzer
         "Inject proxied runtime collaborators by interface",
         "Parameter '{0}' injects concrete runtime collaborator '{1}'. Inject its interface instead.",
         "Architecture",
-        DiagnosticSeverity.Warning,
+        DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     private static readonly DiagnosticDescriptor TracedRegistrationRule = new(
@@ -22,7 +22,7 @@ public sealed class KmlSuiteArchitectureAnalyzer : DiagnosticAnalyzer
         "Register proxied runtime services with AddTracedSingleton",
         "Service registration for '{0}' should use AddKmlSuiteTracing() with AddTracedSingleton(...), not plain AddSingleton(...).",
         "Architecture",
-        DiagnosticSeverity.Warning,
+        DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     private static readonly DiagnosticDescriptor DirectConstructionRule = new(
@@ -30,7 +30,7 @@ public sealed class KmlSuiteArchitectureAnalyzer : DiagnosticAnalyzer
         "Do not directly construct proxied runtime services",
         "Type '{0}' is a proxied runtime service and should not be constructed directly here.",
         "Architecture",
-        DiagnosticSeverity.Warning,
+        DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     private static readonly DiagnosticDescriptor NullForgivingRule = new(
@@ -38,7 +38,7 @@ public sealed class KmlSuiteArchitectureAnalyzer : DiagnosticAnalyzer
         "Do not use the null-forgiving operator",
         "Avoid the null-forgiving operator. Make the null state explicit instead.",
         "Safety",
-        DiagnosticSeverity.Warning,
+        DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     private static readonly ImmutableHashSet<string> ProxiedImplementationTypes = ImmutableHashSet.Create(

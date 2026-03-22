@@ -2,7 +2,6 @@ using System.Text.Json;
 using KmlGenerator.Core.Models;
 using KmlGenerator.Core.Services;
 using KmlSuite.Shared.DependencyInjection;
-using KmlSuite.Shared.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -54,7 +53,6 @@ public sealed class KmlTilerRunner : IKmlTilerApp
 
     public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlTilerRunner), new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -80,20 +78,23 @@ public sealed class KmlTilerRunner : IKmlTilerApp
                 .ToArray();
             _logger.LogInformation("Loaded tile request with {LocationCount} locations across {CategoryCount} categories", request.Locations.Count, requiredCategories.Length);
 
+            var tileRows = BuildTileRows(parsed.North, parsed.South, parsed.LatitudeStep);
+            var tileColumns = BuildTileColumns(parsed.West, parsed.East, parsed.LongitudeStep);
+            var tileBuckets = BucketLocations(request.Locations, tileRows.Count, tileColumns.Count, parsed);
             var summaries = new List<TileSummary>();
-            var row = 0;
 
-            for (var tileNorth = parsed.North; tileNorth > parsed.South; tileNorth -= parsed.LatitudeStep, row++)
+            for (var row = 0; row < tileRows.Count; row++)
             {
-                var tileSouth = Math.Max(tileNorth - parsed.LatitudeStep, parsed.South);
-                var column = 0;
+                var tileNorth = tileRows[row].North;
+                var tileSouth = tileRows[row].South;
 
-                for (var tileWest = parsed.West; tileWest < parsed.East; tileWest += parsed.LongitudeStep, column++)
+                for (var column = 0; column < tileColumns.Count; column++)
                 {
-                    var tileEast = Math.Min(tileWest + parsed.LongitudeStep, parsed.East);
-                    var tileLocations = request.Locations
-                        .Where(location => IsInsideTile(location, tileNorth, tileSouth, tileWest, tileEast, parsed.North, parsed.South, parsed.West, parsed.East))
-                        .ToArray();
+                    var tileWest = tileColumns[column].West;
+                    var tileEast = tileColumns[column].East;
+                    var tileLocations = tileBuckets.TryGetValue((row, column), out var bucket)
+                        ? bucket.ToArray()
+                        : Array.Empty<LocationInput>();
 
                     var categoriesPresent = tileLocations
                         .Select(location => location.Category.Trim())
@@ -168,33 +169,97 @@ public sealed class KmlTilerRunner : IKmlTilerApp
         }
     }
 
-    private bool IsInsideTile(
-        LocationInput location,
-        double north,
-        double south,
-        double west,
-        double east,
+    private Dictionary<(int Row, int Column), List<LocationInput>> BucketLocations(
+        IReadOnlyList<LocationInput> locations,
+        int rowCount,
+        int columnCount,
+        TilerArguments parsed)
+    {
+        var buckets = new Dictionary<(int Row, int Column), List<LocationInput>>();
+
+        foreach (var location in locations)
+        {
+            if (!TryGetTileRow(location.Latitude, parsed.North, parsed.South, parsed.LatitudeStep, rowCount, out var row) ||
+                !TryGetTileColumn(location.Longitude, parsed.West, parsed.East, parsed.LongitudeStep, columnCount, out var column))
+            {
+                continue;
+            }
+
+            var key = (row, column);
+            if (!buckets.TryGetValue(key, out var bucket))
+            {
+                bucket = [];
+                buckets[key] = bucket;
+            }
+
+            bucket.Add(location);
+        }
+
+        return buckets;
+    }
+
+    private static List<TileRow> BuildTileRows(double north, double south, double latitudeStep)
+    {
+        var rows = new List<TileRow>();
+        for (var tileNorth = north; tileNorth > south; tileNorth -= latitudeStep)
+        {
+            rows.Add(new TileRow(tileNorth, Math.Max(tileNorth - latitudeStep, south)));
+        }
+
+        return rows;
+    }
+
+    private static List<TileColumn> BuildTileColumns(double west, double east, double longitudeStep)
+    {
+        var columns = new List<TileColumn>();
+        for (var tileWest = west; tileWest < east; tileWest += longitudeStep)
+        {
+            columns.Add(new TileColumn(tileWest, Math.Min(tileWest + longitudeStep, east)));
+        }
+
+        return columns;
+    }
+
+    private static bool TryGetTileRow(
+        double latitude,
         double overallNorth,
         double overallSouth,
-        double overallWest,
-        double overallEast)
+        double latitudeStep,
+        int rowCount,
+        out int row)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlTilerRunner));
-        var includeSouthEdge = Math.Abs(south - overallSouth) < double.Epsilon;
-        var includeEastEdge = Math.Abs(east - overallEast) < double.Epsilon;
+        if (latitude > overallNorth || latitude < overallSouth)
+        {
+            row = -1;
+            return false;
+        }
 
-        var latitudeMatches = location.Latitude <= north &&
-                              (includeSouthEdge ? location.Latitude >= south : location.Latitude > south);
+        row = (int)Math.Floor((overallNorth - latitude) / latitudeStep);
+        row = Math.Clamp(row, 0, rowCount - 1);
+        return true;
+    }
 
-        var longitudeMatches = location.Longitude >= west &&
-                               (includeEastEdge ? location.Longitude <= east : location.Longitude < east);
+    private static bool TryGetTileColumn(
+        double longitude,
+        double overallWest,
+        double overallEast,
+        double longitudeStep,
+        int columnCount,
+        out int column)
+    {
+        if (longitude < overallWest || longitude > overallEast)
+        {
+            column = -1;
+            return false;
+        }
 
-        return latitudeMatches && longitudeMatches;
+        column = (int)Math.Floor((longitude - overallWest) / longitudeStep);
+        column = Math.Clamp(column, 0, columnCount - 1);
+        return true;
     }
 
     private TilerArguments? ParseArguments(IReadOnlyList<string> args)
     {
-        using var _ = MethodTrace.Enter(_logger, nameof(KmlTilerRunner));
         string? inputPath = null;
         string? outputDirectory = null;
         double? north = null;
@@ -282,6 +347,10 @@ public sealed class KmlTilerRunner : IKmlTilerApp
         double East,
         double LatitudeStep,
         double LongitudeStep);
+
+    private sealed record TileRow(double North, double South);
+
+    private sealed record TileColumn(double West, double East);
 
     private sealed class TileSummary
     {
