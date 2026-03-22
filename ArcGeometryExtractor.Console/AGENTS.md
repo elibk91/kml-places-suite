@@ -2,6 +2,7 @@
 
 - Purpose: extract authoritative local KML/KMZ geometry into normalized JSONL point records.
 - Entry point: `Program.cs`
+- Runtime entrypoint stays thin and resolves the traced `IArcGeometryExtractorApp` boundary through DI.
 - Inputs: ARC `kml/kmz` files, including KMZ `doc.kml` payloads.
 - Outputs: normalized `jsonl` records compatible with `LocationAssembler.Console`, plus optional park/trail/feature split artifacts.
 - Keep this host local-only and geometry-driven. It should not call external APIs.

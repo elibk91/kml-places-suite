@@ -1,17 +1,81 @@
 using System.Text.Json;
+using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using PlacesGatherer.Console;
 using PlacesGatherer.Console.Models;
 using PlacesGatherer.Console.Secrets;
 using PlacesGatherer.Console.Services;
 
-return await PlacesGathererRunner.RunAsync(args, Console.Out, Console.Error);
+return await PlacesGathererProgram.RunAsync(args, Console.Out, Console.Error);
+
+public static class PlacesGathererProgram
+{
+    public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, HttpClient? httpClient = null)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging(builder =>
+        {
+            builder.AddSimpleConsole(console =>
+            {
+                console.TimestampFormat = "HH:mm:ss.fff ";
+                console.SingleLine = true;
+            });
+            builder.SetMinimumLevel(LogLevel.Trace);
+        });
+        services.AddKmlSuiteTracing();
+        services.AddSingleton(provider => httpClient ?? new HttpClient());
+        services.AddTracedSingleton<ISecretProviderFactory, SecretProviderFactory>();
+        services.AddTracedSingleton<IPlacesSearchExpander, PlacesSearchExpander>();
+        services.AddTracedSingleton<IPlaceNameNormalizer, PlaceNameNormalizer>();
+        services.AddTracedSingleton<IGooglePlacesClient, GooglePlacesClient>();
+        services.AddTracedSingleton<IPlacesGathererApp, PlacesGathererRunner>();
+
+        await using var serviceProvider = services.BuildServiceProvider();
+        return await serviceProvider.GetRequiredService<IPlacesGathererApp>().RunAsync(args, output, error);
+    }
+}
 
 /// <summary>
 /// Console signpost: this host owns config loading, secret resolution, and local jsonl writing.
 /// </summary>
-public static class PlacesGathererRunner
+public sealed class PlacesGathererRunner : IPlacesGathererApp
 {
-    public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, HttpClient? httpClient = null)
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
+
+    private readonly ILogger<PlacesGathererRunner> _logger;
+    private readonly ISecretProviderFactory _secretProviderFactory;
+    private readonly IPlacesSearchExpander _searchExpander;
+    private readonly IPlaceNameNormalizer _placeNameNormalizer;
+    private readonly IGooglePlacesClient _client;
+
+    public PlacesGathererRunner(
+        ILogger<PlacesGathererRunner> logger,
+        ISecretProviderFactory secretProviderFactory,
+        IPlacesSearchExpander searchExpander,
+        IPlaceNameNormalizer placeNameNormalizer,
+        IGooglePlacesClient client)
+    {
+        _logger = logger;
+        _secretProviderFactory = secretProviderFactory;
+        _searchExpander = searchExpander;
+        _placeNameNormalizer = placeNameNormalizer;
+        _client = client;
+    }
+
+    public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(PlacesGathererRunner),
+            new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
+
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -29,25 +93,34 @@ public static class PlacesGathererRunner
             }
 
             GooglePlacesClient.ValidateConfig(config);
+            _logger.LogInformation(
+                "Loaded gatherer config {ConfigPath} with {SearchCount} searches",
+                parsed.Value.ConfigPath,
+                config.Searches.Count);
 
-            var secretProvider = SecretProviderFactory.Create(config.Secrets);
+            var secretProvider = _secretProviderFactory.Create(config.Secrets);
             var apiKey = secretProvider.GetGoogleMapsApiKey();
-
-            using var ownedClient = httpClient is null ? new HttpClient() : null;
-            var client = new GooglePlacesClient(httpClient ?? ownedClient!);
+            _logger.LogDebug("Resolved Google Maps API key using provider {Provider}", config.Secrets.Provider);
 
             var gatheredRecords = new List<NormalizedPlaceRecord>();
 
             foreach (var search in config.Searches)
             {
-                foreach (var expandedSearch in PlacesSearchExpander.Expand(search))
+                foreach (var expandedSearch in _searchExpander.Expand(search))
                 {
-                    var results = await client.SearchAsync(expandedSearch, config.Bounds, apiKey);
+                    var results = await _client.SearchAsync(expandedSearch, config.Bounds, apiKey);
+                    _logger.LogInformation(
+                        "Search {Query} ({SourceQueryType}) returned {ResultCount} normalized records",
+                        expandedSearch.Query,
+                        expandedSearch.SourceQueryType,
+                        results.Count);
                     gatheredRecords.AddRange(results);
                 }
             }
 
-            var normalizedRecords = PlaceNameNormalizer.Normalize(gatheredRecords);
+            _logger.LogInformation("Collected {GatheredRecordCount} raw records before normalization", gatheredRecords.Count);
+            var normalizedRecords = _placeNameNormalizer.Normalize(gatheredRecords);
+            _logger.LogInformation("Normalized to {NormalizedRecordCount} output records", normalizedRecords.Count);
             var lines = normalizedRecords.Select(record => JsonSerializer.Serialize(record, JsonOptions));
             await File.WriteAllLinesAsync(parsed.Value.OutputPath, lines);
             await output.WriteLineAsync($"Saved {normalizedRecords.Count} places to {parsed.Value.OutputPath}");
@@ -55,13 +128,19 @@ public static class PlacesGathererRunner
         }
         catch (Exception exception)
         {
+            _logger.LogError(exception, "Places gatherer failed");
             await error.WriteLineAsync(exception.Message);
             return 1;
         }
     }
 
-    private static (string ConfigPath, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
+    private (string ConfigPath, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
     {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(PlacesGathererRunner),
+            new Dictionary<string, object?> { ["ArgumentCount"] = args.Count });
+
         string? configPath = null;
         string? outputPath = null;
 
@@ -85,11 +164,6 @@ public static class PlacesGathererRunner
 
         return (configPath, outputPath);
     }
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
-    };
 }
+
+

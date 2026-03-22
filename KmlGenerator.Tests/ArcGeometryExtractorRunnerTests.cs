@@ -15,6 +15,7 @@ public sealed class ArcGeometryExtractorRunnerTests
         var parkOutputPath = Path.Combine(tempDirectory.FullName, "parks.jsonl");
         var trailOutputPath = Path.Combine(tempDirectory.FullName, "trails.jsonl");
         var featureOutputPath = Path.Combine(tempDirectory.FullName, "features.jsonl");
+        var parkOutlineKmlPath = Path.Combine(tempDirectory.FullName, "park-outlines.kml");
 
         await File.WriteAllTextAsync(
             inputPath,
@@ -23,17 +24,18 @@ public sealed class ArcGeometryExtractorRunnerTests
               <Document>
                 <Placemark>
                   <name>Piedmont Park</name>
+                  <description><![CDATA[<html><body><table><tr><td>AllParks_Fields_Park_Size_SQFT</td><td>200000</td></tr></table></body></html>]]></description>
                   <Polygon>
                     <outerBoundaryIs>
                       <LinearRing>
-                        <coordinates>-84.3738,33.7851 -84.3737,33.7852 -84.3738,33.7851</coordinates>
+                        <coordinates>-84.3745,33.7845 -84.3725,33.7845 -84.3725,33.7865 -84.3745,33.7865 -84.3745,33.7845</coordinates>
                       </LinearRing>
                     </outerBoundaryIs>
                   </Polygon>
                 </Placemark>
                 <Placemark>
                   <name>Atlanta Beltline</name>
-                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Plan_</td><td>Atlanta Transportation Plan</td></tr></table></body></html>]]></description>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Plan_</td><td>Atlanta Transportation Plan</td></tr><tr><td>Length</td><td>2.0</td></tr></table></body></html>]]></description>
                   <LineString>
                     <coordinates>-84.3636,33.7528 -84.3637,33.7529</coordinates>
                   </LineString>
@@ -49,26 +51,29 @@ public sealed class ArcGeometryExtractorRunnerTests
             </kml>
             """);
 
-        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
-            ["--input", inputPath, "--output", outputPath, "--park-output", parkOutputPath, "--trail-output", trailOutputPath, "--feature-output", featureOutputPath],
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
+            ["--input", inputPath, "--output", outputPath, "--park-output", parkOutputPath, "--trail-output", trailOutputPath, "--feature-output", featureOutputPath, "--park-outline-kml-output", parkOutlineKmlPath],
             TextWriter.Null,
             TextWriter.Null);
 
         Assert.Equal(0, exitCode);
 
         var points = await ReadRecordsAsync(outputPath);
-        Assert.Equal(5, points.Count);
-        Assert.Equal(3, points.Count(record => record.Category == "park"));
+        Assert.True(points.Count(record => record.Category == "park") > 3);
         Assert.Equal(2, points.Count(record => record.Category == "trail"));
         Assert.DoesNotContain(points, record => record.Name.Contains("Ponce", StringComparison.Ordinal));
 
         var parks = await ReadRecordsAsync(parkOutputPath);
         var trails = await ReadRecordsAsync(trailOutputPath);
-        Assert.Equal(3, parks.Count);
+        Assert.True(parks.Count > 3);
         Assert.Equal(2, trails.Count);
+        Assert.Contains(parks, point => point.Types.Contains("polygon-densified-edge"));
 
         var features = await File.ReadAllLinesAsync(featureOutputPath);
         Assert.Equal(2, features.Length);
+        var parkOutlineKml = await File.ReadAllTextAsync(parkOutlineKmlPath);
+        Assert.Contains("Piedmont Park", parkOutlineKml, StringComparison.Ordinal);
+        Assert.Contains("<Polygon>", parkOutlineKml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -84,7 +89,7 @@ public sealed class ArcGeometryExtractorRunnerTests
                     <Document>
                       <Placemark>
                         <name>Atlanta Beltline</name>
-                        <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr></table></body></html>]]></description>
+                        <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Length</td><td>2.0</td></tr></table></body></html>]]></description>
                         <LineString>
                           <coordinates>-84.3636,33.7528 -84.3637,33.7529</coordinates>
                         </LineString>
@@ -96,7 +101,7 @@ public sealed class ArcGeometryExtractorRunnerTests
         await CreateKmzAsync(kmzPath, kml);
         File.Copy(kmzPath, duplicateKmzPath);
 
-        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
             ["--input", kmzPath, "--input", duplicateKmzPath, "--output", outputPath],
             TextWriter.Null,
             TextWriter.Null);
@@ -121,7 +126,7 @@ public sealed class ArcGeometryExtractorRunnerTests
               <Document>
                 <Placemark>
                   <name>Atlanta Beltline</name>
-                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr></table></body></html>]]></description>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Length</td><td>2.0</td></tr></table></body></html>]]></description>
                   <LineString>
                     <coordinates>-84.3636,33.7528 -84.3637,33.7529</coordinates>
                   </LineString>
@@ -135,7 +140,7 @@ public sealed class ArcGeometryExtractorRunnerTests
                 </Placemark>
                 <Placemark>
                   <name>NULL</name>
-                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Null</td></tr><tr><td>Plan_</td><td>Chattahoochee RiverLands</td></tr></table></body></html>]]></description>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Null</td></tr><tr><td>Plan_</td><td>Chattahoochee RiverLands</td></tr><tr><td>Length</td><td>2.2</td></tr></table></body></html>]]></description>
                   <LineString>
                     <coordinates>-84.4700,33.7100 -84.4701,33.7101</coordinates>
                   </LineString>
@@ -144,7 +149,7 @@ public sealed class ArcGeometryExtractorRunnerTests
             </kml>
             """);
 
-        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
             ["--input", inputPath, "--output", outputPath],
             TextWriter.Null,
             TextWriter.Null);
@@ -179,7 +184,7 @@ public sealed class ArcGeometryExtractorRunnerTests
             </kml>
             """);
 
-        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
             ["--input", inputPath, "--output", outputPath],
             TextWriter.Null,
             TextWriter.Null);
@@ -230,7 +235,7 @@ public sealed class ArcGeometryExtractorRunnerTests
 
         await CreateKmzAsync(kmzPath, kml);
 
-        var exitCode = await ArcGeometryExtractorRunner.RunAsync(
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
             ["--input", kmzPath, "--output", outputPath],
             TextWriter.Null,
             TextWriter.Null);
@@ -242,6 +247,113 @@ public sealed class ArcGeometryExtractorRunnerTests
         Assert.All(points, point => Assert.Equal("marta", point.Category));
         Assert.Contains(points, point => point.Name == "Decatur");
         Assert.Contains(points, point => point.Name == "Avondale");
+    }
+
+    [Fact]
+    public async Task RunAsync_FiltersOutTinyParksAndShortTrails()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var inputPath = Path.Combine(tempDirectory.FullName, "arc.kml");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <Placemark>
+                  <name>Tiny Park</name>
+                  <description><![CDATA[<html><body><table><tr><td>AllParks_Fields_Park_Size_SQFT</td><td>700</td></tr></table></body></html>]]></description>
+                  <Polygon>
+                    <outerBoundaryIs>
+                      <LinearRing>
+                        <coordinates>-84.3738,33.7851 -84.3737,33.7852 -84.3738,33.7851</coordinates>
+                      </LinearRing>
+                    </outerBoundaryIs>
+                  </Polygon>
+                </Placemark>
+                <Placemark>
+                  <name>Good Park</name>
+                  <description><![CDATA[<html><body><table><tr><td>AllParks_Fields_Park_Size_SQFT</td><td>1000</td></tr></table></body></html>]]></description>
+                  <Polygon>
+                    <outerBoundaryIs>
+                      <LinearRing>
+                        <coordinates>-84.3845,33.7845 -84.3825,33.7845 -84.3825,33.7865 -84.3845,33.7865 -84.3845,33.7845</coordinates>
+                      </LinearRing>
+                    </outerBoundaryIs>
+                  </Polygon>
+                </Placemark>
+                <Placemark>
+                  <name>Short Trail</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Length</td><td>1.2</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.3636,33.7528 -84.3637,33.7529</coordinates>
+                  </LineString>
+                </Placemark>
+                <Placemark>
+                  <name>Long Trail</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Length</td><td>1.8</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.3536,33.7528 -84.3537,33.7529</coordinates>
+                  </LineString>
+                </Placemark>
+              </Document>
+            </kml>
+            """);
+
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
+            ["--input", inputPath, "--output", outputPath],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.DoesNotContain(points, point => point.Name == "Tiny Park");
+        Assert.DoesNotContain(points, point => point.Name == "Short Trail");
+        Assert.Contains(points, point => point.Name == "Good Park");
+        Assert.Contains(points, point => point.Name == "Long Trail");
+    }
+
+    [Fact]
+    public async Task RunAsync_GeneratesDenseParkOutlineNearExpectedSouthwestCorner()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var inputPath = Path.Combine(tempDirectory.FullName, "parks.kml");
+        var outputPath = Path.Combine(tempDirectory.FullName, "parks.jsonl");
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <Placemark>
+                  <name>Piedmont Park</name>
+                  <description><![CDATA[<html><body><table><tr><td>AllParks_Fields_Park_Size_SQFT</td><td>8430161</td></tr></table></body></html>]]></description>
+                  <Polygon>
+                    <outerBoundaryIs>
+                      <LinearRing>
+                        <coordinates>-84.3781119781858,33.78195649884475 -84.3765,33.78195649884475 -84.3765,33.7835 -84.3781119781858,33.7835 -84.3781119781858,33.78195649884475</coordinates>
+                      </LinearRing>
+                    </outerBoundaryIs>
+                  </Polygon>
+                </Placemark>
+              </Document>
+            </kml>
+            """);
+
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
+            ["--input", inputPath, "--output", outputPath],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.NotEmpty(points);
+        Assert.Contains(
+            points,
+            point => GetDistanceFeet(point.Latitude, point.Longitude, 33.78195649884475, -84.3781119781858) <= 60d);
     }
 
     private static async Task<List<NormalizedPlaceRecord>> ReadRecordsAsync(string path) =>
@@ -263,4 +375,22 @@ public sealed class ArcGeometryExtractorRunnerTests
         await using var writer = new StreamWriter(entryStream);
         await writer.WriteAsync(kml);
     }
+
+    private static double GetDistanceFeet(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double earthRadiusFeet = 20_925_524.9d;
+        var latitudeDelta = DegreesToRadians(lat2 - lat1);
+        var longitudeDelta = DegreesToRadians(lon2 - lon1);
+        var startLatitude = DegreesToRadians(lat1);
+        var endLatitude = DegreesToRadians(lat2);
+        var sinLatitude = Math.Sin(latitudeDelta / 2d);
+        var sinLongitude = Math.Sin(longitudeDelta / 2d);
+        var a = (sinLatitude * sinLatitude)
+                + (Math.Cos(startLatitude) * Math.Cos(endLatitude) * sinLongitude * sinLongitude);
+        var c = 2d * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1d - a));
+        return earthRadiusFeet * c;
+    }
+
+    private static double DegreesToRadians(double degrees) =>
+        degrees * (Math.PI / 180d);
 }

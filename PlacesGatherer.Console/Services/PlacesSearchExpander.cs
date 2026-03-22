@@ -1,3 +1,5 @@
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
 namespace PlacesGatherer.Console.Services;
@@ -5,10 +7,27 @@ namespace PlacesGatherer.Console.Services;
 /// <summary>
 /// Expands a configured search into one base query plus optional related queries for access-heavy places.
 /// </summary>
-public static class PlacesSearchExpander
+public sealed class PlacesSearchExpander : IPlacesSearchExpander
 {
-    public static IReadOnlyList<PlacesSearchDefinition> Expand(PlacesSearchDefinition search)
+    private readonly ILogger<PlacesSearchExpander> _logger;
+
+    public PlacesSearchExpander(ILogger<PlacesSearchExpander> logger)
     {
+        _logger = logger;
+    }
+
+    public IReadOnlyList<PlacesSearchDefinition> Expand(PlacesSearchDefinition search)
+    {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(PlacesSearchExpander),
+            new Dictionary<string, object?>
+            {
+                ["Query"] = search.Query,
+                ["Category"] = search.Category,
+                ["HasExpansion"] = search.Expansion?.Enabled == true
+            });
+
         var expanded = new List<PlacesSearchDefinition>
         {
             search with { SourceQueryType = "base", Expansion = null }
@@ -16,6 +35,7 @@ public static class PlacesSearchExpander
 
         if (search.Expansion is null || !search.Expansion.Enabled)
         {
+            _logger.LogDebug("No expansion templates enabled for query {Query}", search.Query);
             return expanded;
         }
 
@@ -32,6 +52,11 @@ public static class PlacesSearchExpander
                 Expansion = null
             });
         }
+
+        _logger.LogInformation(
+            "Expanded query {Query} into {ExpandedCount} search variants",
+            search.Query,
+            expanded.Count);
 
         return expanded;
     }

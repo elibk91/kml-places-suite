@@ -44,7 +44,8 @@ public sealed class PlacesGathererRunnerTests
 
         var handler = new StubHttpMessageHandler(request =>
         {
-            var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            Assert.NotNull(request.Content);
+            var body = request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
             if (body.Contains("Piedmont Park entrance", StringComparison.Ordinal))
             {
@@ -90,7 +91,7 @@ public sealed class PlacesGathererRunnerTests
             };
         });
 
-        var exitCode = await PlacesGathererRunner.RunAsync(
+        var exitCode = await PlacesGathererProgram.RunAsync(
             ["--config", configPath, "--output", outputPath],
             TextWriter.Null,
             TextWriter.Null,

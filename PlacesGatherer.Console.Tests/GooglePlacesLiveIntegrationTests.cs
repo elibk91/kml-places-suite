@@ -1,5 +1,6 @@
 using PlacesGatherer.Console.Models;
 using PlacesGatherer.Console.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace PlacesGatherer.Console.Tests;
 
@@ -20,7 +21,7 @@ public sealed class GooglePlacesLiveIntegrationTests
         }
 
         using var client = new HttpClient();
-        var placesClient = new GooglePlacesClient(client);
+        var placesClient = new GooglePlacesClient(client, new NullLogger<GooglePlacesClient>());
 
         var results = await placesClient.SearchAsync(
             new PlacesSearchDefinition { Query = "Starbucks", Category = "coffee" },
@@ -56,9 +57,9 @@ public sealed class GooglePlacesLiveIntegrationTests
         }
 
         using var client = new HttpClient();
-        var placesClient = new GooglePlacesClient(client);
+        var placesClient = new GooglePlacesClient(client, new NullLogger<GooglePlacesClient>());
 
-        var searches = PlacesSearchExpander.Expand(new PlacesSearchDefinition
+        var searches = new PlacesSearchExpander(new NullLogger<PlacesSearchExpander>()).Expand(new PlacesSearchDefinition
         {
             Query = "Piedmont Park",
             Category = "park",
@@ -89,3 +90,4 @@ public sealed class GooglePlacesLiveIntegrationTests
         Assert.True(totalCount > 0);
     }
 }
+

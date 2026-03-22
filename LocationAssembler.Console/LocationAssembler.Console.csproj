@@ -2,7 +2,18 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KmlGenerator.Core\KmlGenerator.Core.csproj" />
+    <ProjectReference Include="..\KmlSuite.Shared\KmlSuite.Shared.csproj" />
     <ProjectReference Include="..\PlacesGatherer.Console\PlacesGatherer.Console.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep analyzer wiring explicit in each project so the repo DI rules and null-forgiving ban are attached locally instead of through repo-wide props/targets. -->
+    <PackageReference Include="KmlSuite.Analyzers.Package" Version="1.0.0-local" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
   </ItemGroup>
 
   <PropertyGroup>

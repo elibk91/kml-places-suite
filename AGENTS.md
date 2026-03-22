@@ -7,8 +7,7 @@
 - `PlacesGatherer.Console/Program.cs` is the console-only Google Places data gatherer.
 - `LocationAssembler.Console/Program.cs` converts gathered `jsonl` records into `GenerateKmlRequest` JSON.
 - `KmlTiler.Console/Program.cs` walks a fixed lat/lon grid and generates per-tile KML outputs.
-- `MasterListBuilder.Console/Program.cs` builds category-specific master lists from small-box and direct search groups.
-- `ResearchPointResolver.Console/Program.cs` resolves manually researched address/cross-street targets back into normalized points.
+- `MasterListBuilder.Console/Program.cs` builds category-specific master lists for the legacy Google-backed gym and grocery workflow.
 - `KmlGenerator.Core/Services/KmlGenerationService.cs` contains the shared KML generation pipeline.
 
 ## Project AGENTS
@@ -23,7 +22,6 @@
 - `MasterListBuilder.Console/AGENTS.md`: Google master-list collection guidance.
 - `PlacesGatherer.Console/AGENTS.md`: Google Places host guidance.
 - `PlacesGatherer.Console.Tests/AGENTS.md`: Places test guidance.
-- `ResearchPointResolver.Console/AGENTS.md`: legacy/supporting manual research guidance.
 
 ## Project Layout
 - `ArcGeometryExtractor.Console`: local CLI that reads authoritative KML/KMZ files and emits normalized park/trail/MARTA JSONL records.
@@ -33,45 +31,50 @@
 - `PlacesGatherer.Console`: local CLI that queries Google Places and writes normalized `jsonl`.
 - `LocationAssembler.Console`: local CLI that dedupes exact duplicate points and emits final KML request JSON.
 - `KmlTiler.Console`: local CLI that filters a request into fixed-degree tiles and writes non-empty tile KMLs.
-- `MasterListBuilder.Console`: local CLI that creates master JSONL outputs for gyms, groceries, parks/trails, and direct categories such as MARTA.
-- `ResearchPointResolver.Console`: local CLI that takes researched address targets and turns them into normalized JSONL point records.
+- `MasterListBuilder.Console`: local CLI that creates master JSONL outputs for the legacy Google-backed gyms and groceries workflow.
 - `KmlGenerator.Tests`: unit and integration tests for the KML stack.
 - `PlacesGatherer.Console.Tests`: unit tests, mocked integration tests, and gated live Google API tests.
 
 ## Conventions
 - Keep business logic in `KmlGenerator.Core`; the hosts should stay thin.
+- Active runtime logic must sit behind interfaces. Composition roots should resolve app/service interfaces rather than concrete runtime collaborators.
+- Active composition roots use `AddKmlSuiteTracing()` plus `AddTracedSingleton(...)` for proxied runtime boundaries. Do not proxy concrete classes directly.
 - Keep Google-specific code inside `PlacesGatherer.Console`.
 - Keep authoritative local KML/KMZ ingestion inside `ArcGeometryExtractor.Console`.
 - Keep the assembler point-only; it should not invent coordinates or implement geometry heuristics.
 - Keep the tiler degree-grid based; it should reuse the existing KML engine rather than implementing new overlap logic.
-- Use Google Places for gyms and groceries. Use authoritative ARC geometry for parks, trails, and MARTA when available.
-- Keep legacy Google/manual park-trail workflows available for QA and fallback, but not as the primary source of record.
+- Use existing master-list artifacts for gyms and groceries in the active workflow. Use authoritative ARC geometry for parks, trails, and MARTA when available.
 - Default MARTA source is the ARC rail-stations KMZ, not Google-resolved station search.
 - Current authoritative overlap output uses point-based boundary dots, not stitched polygons.
+- When only gyms/groceries change, rerun only those Google-built master lists, then reuse the existing ARC MARTA and ARC park/trail artifacts during assembly.
+- Do not rerun ARC extraction just because gym/grocery filtering or chain lists changed.
 - Read secrets through the secret-provider plumbing, not directly in domain code.
+- Runtime DI should prefer interface injection over concrete runtime service injection. The analyzer enforces that rule and also bans the null-forgiving operator in repo code.
 - Use comments as signposts around major flows and non-obvious math, not on trivial assignments.
 
 ## Output Layout
-- Use `out/authority/` for authoritative current workflow artifacts.
-- Use `out/legacy/` for earlier Google/manual workflow artifacts and superseded outputs kept for comparison.
-- Preferred authority subfolders:
-  - `out/authority/master-lists/`
-  - `out/authority/arc/`
-  - `out/authority/requests/`
-  - `out/authority/kml/`
-- Preferred legacy subfolders:
-  - `out/legacy/requests/`
-  - `out/legacy/kml/`
-  - `out/legacy/tiles/`
-  - `out/legacy/research/`
+- Keep script-owned inputs and outputs under `scripts/` so the workflow artifacts live with the orchestration entrypoints that use them.
+- Keep reusable master-list inputs under:
+  - `scripts/in/master-lists/`
+- Keep durable raw source files for local geometry extraction under:
+  - `scripts/in/arc-sources/`
+- Keep active workflow run products under:
+  - `scripts/out/runs/<workflow>/<RunId>/arc/`
+  - `scripts/out/runs/<workflow>/<RunId>/requests/`
+  - `scripts/out/runs/<workflow>/<RunId>/kml/`
+  - `scripts/out/runs/<workflow>/<RunId>/tiles/`
+  - `scripts/out/runs/<workflow>/<RunId>/trace/`
+- Keep retired workflow outputs under:
+  - `scripts/out/legacy/`
+- Scripts that emit files should default to timestamped run folders so one execution does not overwrite another.
 
 ## Repo Layout
 - Keep code projects at repo root as sibling directories.
 - Keep runner scripts under `scripts/`.
+- Keep retired workflow entrypoints under `scripts/legacy/`; legacy scripts are not part of the active trace-proof surface.
 - Keep checked-in workflow/config JSON under `config/`.
 - Split config by source of truth:
   - `config/authority/` for current authoritative inputs
-  - `config/legacy/` for older or fallback inputs
 - Keep planning and architecture docs under `docs/`.
 
 ## Secrets
@@ -82,7 +85,10 @@
 ## Testing
 - Standard test runs should stay deterministic and not require live Google access.
 - Live Places integration tests are opt-in and require `RUN_LIVE_GOOGLE_TESTS=true` plus `GoogleMaps__ApiKey`.
-- `scripts/run-workflow.ps1` is the top-level local runner; it builds each project it invokes before running gatherer, assembler, optional single KML generation, and optional tiled KML generation.
-- `scripts/build-master-lists.ps1` builds `MasterListBuilder.Console` before running category-specific master list generation.
-- `scripts/resolve-research-points.ps1` builds `ResearchPointResolver.Console` before resolving researched park/trail address targets.
-- `scripts/run-category-workflow.ps1` builds each invoked project and can assemble category data from Google-built master lists plus authoritative local ARC outputs.
+- Use solution builds as the supported compile path. Direct project builds are blocked so analyzer bootstrap and repo-wide rules stay consistent.
+- `scripts/legacy/build-master-lists.ps1` is a legacy entrypoint and not part of the active proof surface.
+- `scripts/run-category-workflow.ps1` builds `KmlSuite.slnx` once, regenerates ARC artifacts from source inputs, and writes active run outputs under a timestamped `scripts/out/runs/category-workflow/<RunId>/` folder.
+- `scripts/extract-park-outline.ps1` is diagnostic-only, but it must still invoke `ArcGeometryExtractor.Console` so the extracted park shape comes from the same ARC parsing and filtering code path as the active workflow.
+- Do not default to `scripts/run-category-workflow.ps1` for gym/grocery-only refreshes; prefer a partial refresh that reuses existing ARC outputs.
+- Proof of active runtime usage comes from proxy event logs, runtime hit summaries, and C# file classification reports under `out/runs/<workflow>/trace/`.
+

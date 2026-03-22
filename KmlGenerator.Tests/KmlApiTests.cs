@@ -22,7 +22,7 @@ public sealed class KmlApiTests : IClassFixture<WebApplicationFactory<Program>>
 
         var payload = await response.Content.ReadFromJsonAsync<GenerateKmlResult>();
         Assert.NotNull(payload);
-        Assert.Contains("<kml", payload!.Kml);
+        Assert.Contains("<kml", payload.Kml);
     }
 
     [Fact]

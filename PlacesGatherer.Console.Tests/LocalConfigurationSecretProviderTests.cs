@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using PlacesGatherer.Console.Models;
 using PlacesGatherer.Console.Secrets;
 
@@ -11,10 +12,12 @@ public sealed class LocalConfigurationSecretProviderTests
         const string variableName = "PLACES_GATHERER_TEST_KEY";
         Environment.SetEnvironmentVariable(variableName, "test-key");
 
-        var provider = new LocalConfigurationSecretProvider(new SecretSettings
-        {
-            EnvironmentVariableName = variableName
-        });
+        var provider = new LocalConfigurationSecretProvider(
+            new SecretSettings
+            {
+                EnvironmentVariableName = variableName
+            },
+            new NullLogger<LocalConfigurationSecretProvider>());
 
         var result = provider.GetGoogleMapsApiKey();
 

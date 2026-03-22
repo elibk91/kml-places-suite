@@ -1,18 +1,76 @@
 using System.Text.Json;
+using System.Text;
+using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using MasterListBuilder.Console;
 using MasterListBuilder.Console.Models;
 using PlacesGatherer.Console.Models;
 using PlacesGatherer.Console.Secrets;
 using PlacesGatherer.Console.Services;
 
-return await MasterListBuilderRunner.RunAsync(args, Console.Out, Console.Error);
+return await MasterListBuilderProgram.RunAsync(args, Console.Out, Console.Error);
 
-/// <summary>
-/// Builds category-specific master lists by querying small fixed-degree tiles for chain categories and direct queries for curated categories.
-/// </summary>
-public static class MasterListBuilderRunner
+public static class MasterListBuilderProgram
 {
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, HttpClient? httpClient = null)
     {
+        var services = new ServiceCollection();
+        services.AddLogging(builder =>
+        {
+            builder.AddSimpleConsole(console =>
+            {
+                console.TimestampFormat = "HH:mm:ss.fff ";
+                console.SingleLine = true;
+            });
+            builder.SetMinimumLevel(LogLevel.Trace);
+        });
+        services.AddKmlSuiteTracing();
+        services.AddSingleton(provider => httpClient ?? new HttpClient());
+        services.AddTracedSingleton<ISecretProviderFactory, SecretProviderFactory>();
+        services.AddTracedSingleton<IPlacesSearchExpander, PlacesSearchExpander>();
+        services.AddTracedSingleton<IPlaceNameNormalizer, PlaceNameNormalizer>();
+        services.AddTracedSingleton<IGooglePlacesClient, GooglePlacesClient>();
+        services.AddTracedSingleton<IMasterListBuilderApp, MasterListBuilderRunner>();
+
+        await using var serviceProvider = services.BuildServiceProvider();
+        return await serviceProvider.GetRequiredService<IMasterListBuilderApp>().RunAsync(args, output, error);
+    }
+}
+
+/// <summary>
+/// Builds category-specific master lists for the authoritative Google-backed categories.
+/// </summary>
+public sealed class MasterListBuilderRunner : IMasterListBuilderApp
+{
+    private readonly ILogger<MasterListBuilderRunner> _logger;
+    private readonly ISecretProviderFactory _secretProviderFactory;
+    private readonly IPlacesSearchExpander _searchExpander;
+    private readonly IPlaceNameNormalizer _placeNameNormalizer;
+    private readonly IGooglePlacesClient _client;
+
+    public MasterListBuilderRunner(
+        ILogger<MasterListBuilderRunner> logger,
+        ISecretProviderFactory secretProviderFactory,
+        IPlacesSearchExpander searchExpander,
+        IPlaceNameNormalizer placeNameNormalizer,
+        IGooglePlacesClient client)
+    {
+        _logger = logger;
+        _secretProviderFactory = secretProviderFactory;
+        _searchExpander = searchExpander;
+        _placeNameNormalizer = placeNameNormalizer;
+        _client = client;
+    }
+
+    public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(MasterListBuilderRunner),
+            new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
+
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -32,24 +90,29 @@ public static class MasterListBuilderRunner
             }
 
             ValidateConfig(config);
+            _logger.LogInformation("Loaded master-list config with {GroupCount} groups", config.Groups.Count);
 
-            var secretProvider = SecretProviderFactory.Create(config.Secrets);
+            var secretProvider = _secretProviderFactory.Create(config.Secrets);
             var apiKey = secretProvider.GetGoogleMapsApiKey();
-
-            using var ownedClient = httpClient is null ? new HttpClient() : null;
-            var client = new GooglePlacesClient(httpClient ?? ownedClient!);
 
             var summary = new List<MasterListSummary>();
 
             foreach (var group in config.Groups)
             {
-                var records = await GatherGroupAsync(group, config.Bounds, config.TileLatitudeStep, config.TileLongitudeStep, client, apiKey);
+                var records = await GatherGroupAsync(group, config.Bounds, config.TileLatitudeStep, config.TileLongitudeStep, _client, apiKey);
                 var filtered = FilterRecords(group, records);
                 var deduped = Deduplicate(filtered);
-                var normalized = PlaceNameNormalizer.Normalize(deduped);
+                var normalized = _placeNameNormalizer.Normalize(deduped);
 
                 var outputPath = Path.Combine(parsed.Value.OutputDirectory, $"{group.Name}-master.jsonl");
                 await File.WriteAllLinesAsync(outputPath, normalized.Select(record => JsonSerializer.Serialize(record, JsonOptions)));
+                _logger.LogInformation(
+                    "Group {GroupName}: raw={RawCount}, filtered={FilteredCount}, deduped={DedupedCount}, normalized={NormalizedCount}",
+                    group.Name,
+                    records.Count,
+                    filtered.Count,
+                    deduped.Count,
+                    normalized.Count);
 
                 summary.Add(new MasterListSummary
                 {
@@ -67,46 +130,26 @@ public static class MasterListBuilderRunner
         }
         catch (Exception exception)
         {
+            _logger.LogError(exception, "Master list builder failed");
             await error.WriteLineAsync(exception.Message);
             return 1;
         }
     }
 
-    private static async Task<List<NormalizedPlaceRecord>> GatherGroupAsync(
+    private async Task<List<NormalizedPlaceRecord>> GatherGroupAsync(
         SearchGroup group,
         RectangleBounds bounds,
         double tileLatitudeStep,
         double tileLongitudeStep,
-        GooglePlacesClient client,
+        IGooglePlacesClient client,
         string apiKey)
     {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(MasterListBuilderRunner),
+            new Dictionary<string, object?> { ["GroupName"] = group.Name });
+
         var records = new List<NormalizedPlaceRecord>();
-
-        if (group.Mode.Equals("direct", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var search in group.Searches)
-            {
-                foreach (var expandedSearch in ExpandDirectSearches(group, search))
-                {
-                    var matches = await client.SearchAsync(expandedSearch, bounds, apiKey);
-
-                    if (group.Name.Equals("marta", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var bestMatch = SelectBestMartaMatch(expandedSearch.Query, matches);
-                        if (bestMatch is not null)
-                        {
-                            records.Add(bestMatch);
-                        }
-
-                        continue;
-                    }
-
-                    records.AddRange(matches);
-                }
-            }
-
-            return records;
-        }
 
         for (var north = bounds.North; north > bounds.South; north -= tileLatitudeStep)
         {
@@ -125,7 +168,7 @@ public static class MasterListBuilderRunner
 
                 foreach (var search in group.Searches)
                 {
-                    foreach (var expandedSearch in PlacesSearchExpander.Expand(search))
+                    foreach (var expandedSearch in ExpandGroupSearches(search))
                     {
                         records.AddRange(await client.SearchAsync(expandedSearch, tileBounds, apiKey));
                     }
@@ -136,57 +179,15 @@ public static class MasterListBuilderRunner
         return records;
     }
 
-    private static IReadOnlyList<PlacesSearchDefinition> ExpandDirectSearches(SearchGroup group, PlacesSearchDefinition search)
+    private IReadOnlyList<PlacesSearchDefinition> ExpandGroupSearches(PlacesSearchDefinition search)
     {
-        if (!group.Name.Equals("marta", StringComparison.OrdinalIgnoreCase))
-        {
-            return PlacesSearchExpander.Expand(search);
-        }
-
-        return BuildMartaSearchVariants(search)
-            .SelectMany(PlacesSearchExpander.Expand)
-            .GroupBy(candidate => candidate.Query, StringComparer.OrdinalIgnoreCase)
-            .Select(grouped => grouped.First())
-            .ToArray();
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
+        return _searchExpander.Expand(search);
     }
 
-    private static IReadOnlyList<PlacesSearchDefinition> BuildMartaSearchVariants(PlacesSearchDefinition search)
+    private List<NormalizedPlaceRecord> Deduplicate(IEnumerable<NormalizedPlaceRecord> records)
     {
-        var stationName = search.Query
-            .Replace("MARTA", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("Station", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Trim();
-
-        var aliases = MartaQueryAliases.TryGetValue(search.Query, out var configuredAliases)
-            ? configuredAliases
-            : Array.Empty<string>();
-
-        var queryVariants = new[]
-        {
-            search.Query,
-            $"{stationName} MARTA Station",
-            $"{stationName} Station MARTA",
-            $"{search.Query} Atlanta GA",
-            $"{stationName} Atlanta GA",
-            $"{stationName} Georgia"
-        }
-            .Concat(aliases)
-            .Where(query => !string.IsNullOrWhiteSpace(query))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
-
-        return queryVariants
-            .Select(query => new PlacesSearchDefinition
-            {
-                Query = query,
-                Category = search.Category,
-                SourceQueryType = search.SourceQueryType,
-                Expansion = search.Expansion
-            })
-            .ToArray();
-    }
-
-    private static List<NormalizedPlaceRecord> Deduplicate(IEnumerable<NormalizedPlaceRecord> records)
-    {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         var byIdentity = new Dictionary<string, NormalizedPlaceRecord>(StringComparer.OrdinalIgnoreCase);
         var byCoordinates = new Dictionary<string, NormalizedPlaceRecord>(StringComparer.OrdinalIgnoreCase);
 
@@ -212,8 +213,9 @@ public static class MasterListBuilderRunner
         return byCoordinates.Values.ToList();
     }
 
-    private static IReadOnlyList<NormalizedPlaceRecord> FilterRecords(SearchGroup group, IReadOnlyList<NormalizedPlaceRecord> records)
+    private IReadOnlyList<NormalizedPlaceRecord> FilterRecords(SearchGroup group, IReadOnlyList<NormalizedPlaceRecord> records)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (!group.ApplyCategoryFilter)
         {
             return records;
@@ -223,15 +225,19 @@ public static class MasterListBuilderRunner
         {
             "gyms" => records.Where(IsLikelyGym).ToArray(),
             "groceries" => records.Where(IsLikelyGrocery).ToArray(),
-            "marta" => records.Where(IsLikelyMartaStation).ToArray(),
-            "parks-trails" => records.Where(IsLikelyParkOrTrail).ToArray(),
             _ => records
         };
     }
 
-    private static bool IsLikelyGym(NormalizedPlaceRecord record)
+    private bool IsLikelyGym(NormalizedPlaceRecord record)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (ContainsRejectKeyword(record.Name) || ContainsRejectKeyword(record.FormattedAddress))
+        {
+            return false;
+        }
+
+        if (!MatchesExpectedChain(record))
         {
             return false;
         }
@@ -246,9 +252,15 @@ public static class MasterListBuilderRunner
                || ContainsNameKeyword(record.Name, "workout");
     }
 
-    private static bool IsLikelyGrocery(NormalizedPlaceRecord record)
+    private bool IsLikelyGrocery(NormalizedPlaceRecord record)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (ContainsRejectKeyword(record.Name) || ContainsRejectKeyword(record.FormattedAddress))
+        {
+            return false;
+        }
+
+        if (!MatchesExpectedChain(record))
         {
             return false;
         }
@@ -269,127 +281,55 @@ public static class MasterListBuilderRunner
                || record.Query.Contains("Lidl", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsLikelyMartaStation(NormalizedPlaceRecord record)
+    private bool MatchesExpectedChain(NormalizedPlaceRecord record)
     {
-        if (!record.Name.Contains("Station", StringComparison.OrdinalIgnoreCase)
-            || !(ContainsType(record, "transit_station")
-                 || ContainsType(record, "train_station")
-                 || ContainsType(record, "subway_station")))
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
+        if (ChainAliases.TryGetValue(record.Query, out var aliases))
+        {
+            return aliases.Any(alias => ContainsChainName(record.Name, alias));
+        }
+
+        return true;
+    }
+
+    private bool ContainsChainName(string? placeName, string expectedChain)
+    {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
+        if (string.IsNullOrWhiteSpace(placeName) || string.IsNullOrWhiteSpace(expectedChain))
         {
             return false;
         }
 
-        var expectedTokens = Tokenize(record.Query)
-            .Where(token => !MartaIgnoredTokens.Contains(token, StringComparer.OrdinalIgnoreCase))
-            .ToArray();
+        var normalizedName = NormalizeForChainMatch(placeName);
+        var normalizedExpected = NormalizeForChainMatch(expectedChain);
 
-        if (expectedTokens.Length == 0)
+        if (normalizedName.Contains(normalizedExpected, StringComparison.Ordinal))
         {
             return true;
         }
 
-        var candidateTokens = Tokenize(record.Name)
-            .Select(NormalizeToken)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var expectedTokens = normalizedExpected
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        return expectedTokens.All(token => candidateTokens.Contains(NormalizeToken(token)));
+        return expectedTokens.Length > 0 && expectedTokens.All(token => normalizedName.Contains(token, StringComparison.Ordinal));
     }
 
-    private static NormalizedPlaceRecord? SelectBestMartaMatch(string query, IReadOnlyList<NormalizedPlaceRecord> matches)
+    private string NormalizeForChainMatch(string value)
     {
-        var filtered = matches
-            .Where(IsLikelyMartaStation)
-            .Select(record => new
-            {
-                Record = record,
-                Score = ScoreMartaMatch(query, record)
-            })
-            .OrderByDescending(candidate => candidate.Score)
-            .ThenBy(candidate => candidate.Record.Name.Length)
-            .ToArray();
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value.ToLowerInvariant())
+        {
+            builder.Append(char.IsLetterOrDigit(character) ? character : ' ');
+        }
 
-        return filtered.FirstOrDefault()?.Record;
+        return string.Join(' ', builder.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
-    private static int ScoreMartaMatch(string query, NormalizedPlaceRecord record)
-    {
-        var expectedTokens = Tokenize(query)
-            .Where(token => !MartaIgnoredTokens.Contains(token, StringComparer.OrdinalIgnoreCase))
-            .Select(NormalizeToken)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var candidateTokens = Tokenize(record.Name)
-            .Select(NormalizeToken)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var score = expectedTokens.Count(token => candidateTokens.Contains(token)) * 10;
-
-        if (ContainsType(record, "subway_station") || ContainsType(record, "train_station"))
-        {
-            score += 5;
-        }
-
-        if (ContainsType(record, "transit_station"))
-        {
-            score += 2;
-        }
-
-        if (ContainsType(record, "bus_stop"))
-        {
-            score -= 3;
-        }
-
-        if (ContainsType(record, "bus_station"))
-        {
-            score -= 2;
-        }
-
-        if (record.Name.StartsWith("MARTA", StringComparison.OrdinalIgnoreCase)
-            || record.Name.EndsWith("Station", StringComparison.OrdinalIgnoreCase))
-        {
-            score += 1;
-        }
-
-        score -= Math.Max(0, candidateTokens.Count - expectedTokens.Count);
-        return score;
-    }
-
-    private static bool IsLikelyParkOrTrail(NormalizedPlaceRecord record)
-    {
-        var name = record.Name;
-        var types = record.Types;
-
-        if (ContainsRejectKeyword(name) || ContainsRejectKeyword(record.FormattedAddress))
-        {
-            return false;
-        }
-
-        if (types.Any(type => ParkTrailRejectedTypes.Contains(type, StringComparer.OrdinalIgnoreCase)))
-        {
-            return false;
-        }
-
-        if (types.Any(type => ParkTrailAllowedTypes.Contains(type, StringComparer.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        var nameTokens = Tokenize(name)
-            .Select(NormalizeToken)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (ParkTrailKeywords.Any(keyword => nameTokens.Contains(keyword)))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool ContainsType(NormalizedPlaceRecord record, string type) =>
+    private bool ContainsType(NormalizedPlaceRecord record, string type) =>
         record.Types.Any(candidate => candidate.Equals(type, StringComparison.OrdinalIgnoreCase));
 
-    private static bool ContainsNameKeyword(string? value, string keyword) =>
+    private bool ContainsNameKeyword(string? value, string keyword) =>
         !string.IsNullOrWhiteSpace(value) && value.Contains(keyword, StringComparison.OrdinalIgnoreCase);
 
     private static IEnumerable<string> Tokenize(string? value)
@@ -409,15 +349,9 @@ public static class MasterListBuilderRunner
         }
     }
 
-    private static string NormalizeToken(string token) =>
-        token.ToLowerInvariant() switch
-        {
-            "ft" => "fort",
-            _ => token.ToLowerInvariant()
-        };
-
-    private static bool ContainsRejectKeyword(string? value)
+    private bool ContainsRejectKeyword(string? value)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (string.IsNullOrWhiteSpace(value))
         {
             return false;
@@ -447,92 +381,36 @@ public static class MasterListBuilderRunner
         "salon"
     ];
 
-    private static readonly string[] ParkTrailAllowedTypes =
-    [
-        "park",
-        "hiking_area",
-        "dog_park",
-        "national_park",
-        "state_park",
-        "botanical_garden",
-        "tourist_attraction",
-        "campground"
-    ];
-
-    private static readonly string[] ParkTrailRejectedTypes =
-    [
-        "apartment_building",
-        "accounting",
-        "athletic_field",
-        "bank",
-        "bar",
-        "brewery",
-        "bus_station",
-        "bus_stop",
-        "cemetery",
-        "discount_store",
-        "funeral_home",
-        "hotel",
-        "lodging",
-        "parking",
-        "park_and_ride",
-        "primary_school",
-        "school",
-        "sports_club",
-        "store",
-        "thrift_store"
-    ];
-
-    private static readonly string[] ParkTrailKeywords =
-    [
-        "park",
-        "trail",
-        "greenway",
-        "preserve",
-        "beltline",
-        "path",
-        "trailhead"
-    ];
-
-    private static readonly string[] MartaIgnoredTokens =
-    [
-        "marta",
-        "station"
-    ];
-
-    private static readonly Dictionary<string, string[]> MartaQueryAliases = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string[]> ChainAliases = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["MARTA Brookhaven Oglethorpe Station"] =
-        [
-            "Brookhaven/Oglethorpe Station",
-            "MARTA Brookhaven/Oglethorpe Station"
-        ],
-        ["MARTA Edgewood Candler Park Station"] =
-        [
-            "Edgewood/Candler Park Station",
-            "MARTA Edgewood/Candler Park Station"
-        ],
-        ["MARTA Inman Park Reynoldstown Station"] =
-        [
-            "Inman Park/Reynoldstown Station",
-            "MARTA Inman Park/Reynoldstown Station"
-        ],
-        ["MARTA Lakewood Ft McPherson Station"] =
-        [
-            "Lakewood/Fort McPherson Station",
-            "Lakewood/Ft. McPherson Station",
-            "MARTA Lakewood/Fort McPherson Station"
-        ],
-        ["MARTA SEC District Station"] =
-        [
-            "GWCC/CNN Center Station",
-            "Dome/GWCC/Philips Arena/CNN Center Station",
-            "MARTA GWCC/CNN Center Station"
-        ]
+        ["Planet Fitness"] = ["Planet Fitness"],
+        ["LA Fitness"] = ["LA Fitness"],
+        ["Esporta Fitness"] = ["Esporta Fitness"],
+        ["Crunch Fitness"] = ["Crunch", "Crunch Fitness"],
+        ["Workout Anytime"] = ["Workout Anytime"],
+        ["Anytime Fitness"] = ["Anytime Fitness"],
+        ["Snap Fitness"] = ["Snap Fitness"],
+        ["YMCA"] = ["YMCA"],
+        ["Life Time"] = ["Life Time"],
+        ["Onelife Fitness"] = ["Onelife Fitness", "Onelife"],
+        ["Kroger"] = ["Kroger"],
+        ["Publix"] = ["Publix"],
+        ["Walmart"] = ["Walmart"],
+        ["Walmart Neighborhood Market"] = ["Walmart Neighborhood Market", "Walmart"],
+        ["Target Grocery"] = ["Target Grocery", "Target"],
+        ["ALDI"] = ["ALDI"],
+        ["Trader Joe's"] = ["Trader Joe's", "Trader Joes"],
+        ["Lidl"] = ["Lidl"],
+        ["Whole Foods Market"] = ["Whole Foods Market", "Whole Foods"],
+        ["Sprouts Farmers Market"] = ["Sprouts Farmers Market", "Sprouts"],
+        ["Costco"] = ["Costco"],
+        ["Sam's Club"] = ["Sam's Club", "Sams Club"],
+        ["The Fresh Market"] = ["The Fresh Market"]
     };
 
-    private static void ValidateConfig(MasterListConfig config)
+    private void ValidateConfig(MasterListConfig config)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         if (config.TileLatitudeStep <= 0d || config.TileLongitudeStep <= 0d)
         {
             throw new InvalidOperationException("TileLatitudeStep and TileLongitudeStep must be greater than zero.");
@@ -555,6 +433,16 @@ public static class MasterListBuilderRunner
                 throw new InvalidOperationException("Each search group requires a name.");
             }
 
+            if (!group.Mode.Equals("tiled", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Search group '{group.Name}' must use tiled mode.");
+            }
+
+            if (!SupportedGroupNames.Contains(group.Name))
+            {
+                throw new InvalidOperationException($"Search group '{group.Name}' is not supported. Use only gyms or groceries.");
+            }
+
             if (group.Searches.Count == 0)
             {
                 throw new InvalidOperationException($"Search group '{group.Name}' must contain at least one search.");
@@ -562,8 +450,9 @@ public static class MasterListBuilderRunner
         }
     }
 
-    private static (string ConfigPath, string OutputDirectory)? ParseArguments(IReadOnlyList<string> args)
+    private (string ConfigPath, string OutputDirectory)? ParseArguments(IReadOnlyList<string> args)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(MasterListBuilderRunner));
         string? configPath = null;
         string? outputDirectory = null;
 
@@ -592,6 +481,12 @@ public static class MasterListBuilderRunner
         WriteIndented = false
     };
 
+    private static readonly HashSet<string> SupportedGroupNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "gyms",
+        "groceries"
+    };
+
     private sealed class MasterListSummary
     {
         public string GroupName { get; init; } = string.Empty;
@@ -603,3 +498,5 @@ public static class MasterListBuilderRunner
         public int RecordCount { get; init; }
     }
 }
+
+

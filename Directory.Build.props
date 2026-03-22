@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <!-- Local analyzer package restore/build is currently unstable under parallel project-graph evaluation in this repo.
+         Force non-parallel project graph builds so plain `dotnet build <project>.csproj` remains reliable. -->
+    <BuildInParallel>false</BuildInParallel>
+  </PropertyGroup>
+</Project>

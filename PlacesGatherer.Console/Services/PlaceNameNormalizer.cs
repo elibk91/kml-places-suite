@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
 namespace PlacesGatherer.Console.Services;
@@ -6,17 +8,32 @@ namespace PlacesGatherer.Console.Services;
 /// <summary>
 /// Resolves concise final names while keeping duplicate place names distinguishable.
 /// </summary>
-public static partial class PlaceNameNormalizer
+public sealed partial class PlaceNameNormalizer : IPlaceNameNormalizer
 {
-    public static IReadOnlyList<NormalizedPlaceRecord> Normalize(IReadOnlyList<NormalizedPlaceRecord> records)
+    private readonly ILogger<PlaceNameNormalizer> _logger;
+
+    public PlaceNameNormalizer(ILogger<PlaceNameNormalizer> logger)
     {
+        _logger = logger;
+    }
+
+    public IReadOnlyList<NormalizedPlaceRecord> Normalize(IReadOnlyList<NormalizedPlaceRecord> records)
+    {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(PlaceNameNormalizer),
+            new Dictionary<string, object?> { ["RecordCount"] = records.Count });
+
         var normalized = records
             .Select(record => record with { Name = BuildBaseName(record) })
             .ToArray();
 
         var grouped = normalized
             .GroupBy(record => $"{record.Category}::{record.Name}", StringComparer.OrdinalIgnoreCase)
-            .Where(group => group.Count() > 1);
+            .Where(group => group.Count() > 1)
+            .ToArray();
+
+        _logger.LogDebug("Found {ConflictGroupCount} naming conflict groups", grouped.Length);
 
         foreach (var group in grouped)
         {
@@ -48,8 +65,10 @@ public static partial class PlaceNameNormalizer
         return normalized;
     }
 
-    private static void Replace(NormalizedPlaceRecord[] records, NormalizedPlaceRecord updated)
+    private void Replace(NormalizedPlaceRecord[] records, NormalizedPlaceRecord updated)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
+
         var index = Array.FindIndex(records, record =>
             record.PlaceId.Equals(updated.PlaceId, StringComparison.Ordinal) &&
             record.Query.Equals(updated.Query, StringComparison.Ordinal) &&
@@ -61,22 +80,25 @@ public static partial class PlaceNameNormalizer
         }
     }
 
-    private static string BuildBaseName(NormalizedPlaceRecord record)
+    private string BuildBaseName(NormalizedPlaceRecord record)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         var candidate = string.IsNullOrWhiteSpace(record.Name) ? record.Query : record.Name;
         return CollapseWhitespace(candidate);
     }
 
-    private static string BuildNameWithHint(NormalizedPlaceRecord record)
+    private string BuildNameWithHint(NormalizedPlaceRecord record)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         var hint = ExtractAddressHint(record.FormattedAddress);
         return string.IsNullOrWhiteSpace(hint)
             ? BuildBaseName(record)
             : $"{BuildBaseName(record)} | {hint}";
     }
 
-    private static string ExtractAddressHint(string? formattedAddress)
+    private string ExtractAddressHint(string? formattedAddress)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         if (string.IsNullOrWhiteSpace(formattedAddress))
         {
             return string.Empty;
@@ -94,8 +116,9 @@ public static partial class PlaceNameNormalizer
         return CollapseWhitespace(firstSegment);
     }
 
-    private static string BuildStableSuffix(string placeId)
+    private string BuildStableSuffix(string placeId)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
         if (string.IsNullOrWhiteSpace(placeId))
         {
             return "id";
@@ -104,8 +127,11 @@ public static partial class PlaceNameNormalizer
         return placeId.Length <= 4 ? placeId : placeId[^4..];
     }
 
-    private static string CollapseWhitespace(string value) =>
-        MultipleWhitespace().Replace(value.Trim(), " ");
+    private string CollapseWhitespace(string value)
+    {
+        using var _ = MethodTrace.Enter(_logger, nameof(PlaceNameNormalizer));
+        return MultipleWhitespace().Replace(value.Trim(), " ");
+    }
 
     [GeneratedRegex(@"^\d+[A-Za-z\-]*\s+")]
     private static partial Regex StreetNumberPrefix();

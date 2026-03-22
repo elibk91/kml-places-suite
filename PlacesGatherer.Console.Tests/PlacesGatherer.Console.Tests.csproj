@@ -19,6 +19,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Keep analyzer wiring explicit in each project so the repo DI rules and null-forgiving ban are attached locally instead of through repo-wide props/targets. -->
+    <PackageReference Include="KmlSuite.Analyzers.Package" Version="1.0.0-local" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 

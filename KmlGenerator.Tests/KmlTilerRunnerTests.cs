@@ -27,7 +27,7 @@ public sealed class KmlTilerRunnerTests
 
         await File.WriteAllTextAsync(inputPath, JsonSerializer.Serialize(request));
 
-        var exitCode = await KmlTilerRunner.RunAsync(
+        var exitCode = await KmlTilerProgram.RunAsync(
             [
                 "--input", inputPath,
                 "--output-dir", outputDirectory,

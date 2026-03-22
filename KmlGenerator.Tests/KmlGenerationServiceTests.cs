@@ -44,9 +44,11 @@ public sealed class KmlGenerationServiceTests
 
         var result = _service.Generate(request);
 
+        Assert.Contains("<Polygon>", result.Kml);
+        Assert.Contains("<LinearRing>", result.Kml);
         Assert.Contains("Overlap Boundary", result.Kml);
         Assert.Contains("Category Points", result.Kml);
-        Assert.Contains("boundary-point", result.Kml);
+        Assert.Contains("boundary-polygon", result.Kml);
         Assert.Contains("category-coffee", result.Kml);
         Assert.Contains("category-grocery", result.Kml);
         Assert.Contains("Main Coffee (", result.Kml);
@@ -77,7 +79,7 @@ public sealed class KmlGenerationServiceTests
 
         Assert.True(result.ValidPointCount > 0);
         Assert.True(result.BoundaryPointCount > 0);
-        Assert.Contains("boundary-point", result.Kml);
+        Assert.Contains("<Polygon>", result.Kml);
     }
 
     [Fact]

@@ -1,16 +1,33 @@
+using KmlSuite.Shared.Diagnostics;
+using KmlSuite.Shared.Tracing;
+using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
-
 namespace PlacesGatherer.Console.Secrets;
-
-public static class SecretProviderFactory
+public sealed class SecretProviderFactory : ISecretProviderFactory
 {
-    public static ISecretProvider Create(SecretSettings settings)
+    private readonly ILogger<SecretProviderFactory> _logger;
+    private readonly ITraceProxyFactory _traceProxyFactory;
+    private readonly ILogger<LocalConfigurationSecretProvider> _localProviderLogger;
+    public SecretProviderFactory(
+        ILogger<SecretProviderFactory> logger,
+        ITraceProxyFactory traceProxyFactory,
+        ILogger<LocalConfigurationSecretProvider> localProviderLogger)
     {
+        _logger = logger;
+        _traceProxyFactory = traceProxyFactory;
+        _localProviderLogger = localProviderLogger;
+    }
+    public ISecretProvider Create(SecretSettings settings)
+    {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(SecretProviderFactory),
+            new Dictionary<string, object?> { ["Provider"] = settings.Provider });
         if (settings.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase))
         {
-            return new LocalConfigurationSecretProvider(settings);
+            var provider = new LocalConfigurationSecretProvider(settings, _localProviderLogger);
+            return _traceProxyFactory.Create<ISecretProvider>(provider);
         }
-
         throw new NotSupportedException(
             $"Secret provider '{settings.Provider}' is not implemented yet. Use 'Local' for now.");
     }

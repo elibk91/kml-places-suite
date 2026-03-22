@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
 namespace PlacesGatherer.Console.Services;
@@ -7,16 +9,18 @@ namespace PlacesGatherer.Console.Services;
 /// <summary>
 /// Google integration signpost: all request construction and payload mapping lives here so the CLI stays simple.
 /// </summary>
-public sealed class GooglePlacesClient
+public sealed class GooglePlacesClient : IGooglePlacesClient
 {
     public const string FieldMask =
         "places.id,places.displayName,places.formattedAddress,places.location,places.types";
 
     private readonly HttpClient _httpClient;
+    private readonly ILogger<GooglePlacesClient> _logger;
 
-    public GooglePlacesClient(HttpClient httpClient)
+    public GooglePlacesClient(HttpClient httpClient, ILogger<GooglePlacesClient> logger)
     {
         _httpClient = httpClient;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<NormalizedPlaceRecord>> SearchAsync(
@@ -25,46 +29,86 @@ public sealed class GooglePlacesClient
         string apiKey,
         CancellationToken cancellationToken = default)
     {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(GooglePlacesClient),
+            new Dictionary<string, object?>
+            {
+                ["Query"] = search.Query,
+                ["Category"] = search.Category,
+                ["South"] = bounds.South,
+                ["North"] = bounds.North,
+                ["West"] = bounds.West,
+                ["East"] = bounds.East
+            });
+
         SearchTextResponse? payload = null;
 
         for (var attempt = 0; attempt < RetryDelays.Length; attempt++)
         {
             using var request = CreateRequest(search, bounds, apiKey);
+            _logger.LogDebug("Sending Google Places request for {Query} on attempt {Attempt}", search.Query, attempt + 1);
             using var response = await _httpClient.SendAsync(request, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
                 payload = await response.Content.ReadFromJsonAsync<SearchTextResponse>(cancellationToken: cancellationToken);
+                _logger.LogInformation(
+                    "Google Places request for {Query} succeeded with {PlaceCount} places on attempt {Attempt}",
+                    search.Query,
+                    payload?.Places?.Length ?? 0,
+                    attempt + 1);
                 break;
             }
 
             if (!IsRetriableStatusCode((int)response.StatusCode) || attempt == RetryDelays.Length - 1)
             {
+                _logger.LogWarning(
+                    "Google Places request for {Query} failed with status {StatusCode} and will not retry",
+                    search.Query,
+                    (int)response.StatusCode);
                 response.EnsureSuccessStatusCode();
             }
 
+            _logger.LogWarning(
+                "Google Places request for {Query} failed with retriable status {StatusCode}; delaying for {DelaySeconds} seconds",
+                search.Query,
+                (int)response.StatusCode,
+                RetryDelays[attempt].TotalSeconds);
             await Task.Delay(RetryDelays[attempt], cancellationToken);
         }
 
-        return payload?.Places?
+        var mapped = payload?.Places?
             .Where(place => place.Location is not null)
-            .Select(place => new NormalizedPlaceRecord
+            .Select(place =>
             {
-                Query = search.Query,
-                Category = search.Category,
-                PlaceId = place.Id ?? string.Empty,
-                Name = place.DisplayName?.Text ?? string.Empty,
-                FormattedAddress = place.FormattedAddress,
-                Latitude = place.Location!.Latitude,
-                Longitude = place.Location.Longitude,
-                Types = place.Types ?? Array.Empty<string>(),
-                SourceQueryType = search.SourceQueryType
+                var location = place.Location ?? throw new InvalidOperationException("Google Places returned a place without coordinates.");
+                return new NormalizedPlaceRecord
+                {
+                    Query = search.Query,
+                    Category = search.Category,
+                    PlaceId = place.Id ?? string.Empty,
+                    Name = place.DisplayName?.Text ?? string.Empty,
+                    FormattedAddress = place.FormattedAddress,
+                    Latitude = location.Latitude,
+                    Longitude = location.Longitude,
+                    Types = place.Types ?? Array.Empty<string>(),
+                    SourceQueryType = search.SourceQueryType
+                };
             })
             .ToArray() ?? Array.Empty<NormalizedPlaceRecord>();
+
+        _logger.LogDebug("Mapped {MappedCount} normalized place records for {Query}", mapped.Length, search.Query);
+        return mapped;
     }
 
-    private static HttpRequestMessage CreateRequest(PlacesSearchDefinition search, RectangleBounds bounds, string apiKey)
+    private HttpRequestMessage CreateRequest(PlacesSearchDefinition search, RectangleBounds bounds, string apiKey)
     {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(GooglePlacesClient),
+            new Dictionary<string, object?> { ["Query"] = search.Query });
+
         var request = new HttpRequestMessage(HttpMethod.Post, "https://places.googleapis.com/v1/places:searchText");
         request.Headers.Add("X-Goog-Api-Key", apiKey);
         request.Headers.Add("X-Goog-FieldMask", FieldMask);
@@ -92,8 +136,14 @@ public sealed class GooglePlacesClient
         return request;
     }
 
-    private static bool IsRetriableStatusCode(int statusCode) =>
-        statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+    private bool IsRetriableStatusCode(int statusCode)
+    {
+        using var _ = MethodTrace.Enter(
+            _logger,
+            nameof(GooglePlacesClient),
+            new Dictionary<string, object?> { ["StatusCode"] = statusCode });
+        return statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+    }
 
     private static readonly TimeSpan[] RetryDelays =
     [
@@ -196,3 +246,4 @@ public sealed class GooglePlacesClient
         public string? Text { get; init; }
     }
 }
+

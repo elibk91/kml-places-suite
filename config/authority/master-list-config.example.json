@@ -23,7 +23,9 @@
         { "query": "Workout Anytime", "category": "gym" },
         { "query": "Anytime Fitness", "category": "gym" },
         { "query": "Snap Fitness", "category": "gym" },
-        { "query": "YMCA", "category": "gym" }
+        { "query": "YMCA", "category": "gym" },
+        { "query": "Life Time", "category": "gym" },
+        { "query": "Onelife Fitness", "category": "gym" }
       ]
     },
     {
@@ -39,66 +41,10 @@
         { "query": "Trader Joe's", "category": "grocery" },
         { "query": "Lidl", "category": "grocery" },
         { "query": "Whole Foods Market", "category": "grocery" },
-        { "query": "Sprouts Farmers Market", "category": "grocery" }
-      ]
-    },
-    {
-      "name": "marta",
-      "mode": "direct",
-      "searches": [
-        { "query": "MARTA Airport Station", "category": "marta" },
-        { "query": "MARTA Arts Center Station", "category": "marta" },
-        { "query": "MARTA Ashby Station", "category": "marta" },
-        { "query": "MARTA Avondale Station", "category": "marta" },
-        { "query": "MARTA Bankhead Station", "category": "marta" },
-        { "query": "MARTA Brookhaven Oglethorpe Station", "category": "marta" },
-        { "query": "MARTA Buckhead Station", "category": "marta" },
-        { "query": "MARTA Chamblee Station", "category": "marta" },
-        { "query": "MARTA Civic Center Station", "category": "marta" },
-        { "query": "MARTA College Park Station", "category": "marta" },
-        { "query": "MARTA Decatur Station", "category": "marta" },
-        { "query": "MARTA Doraville Station", "category": "marta" },
-        { "query": "MARTA Dunwoody Station", "category": "marta" },
-        { "query": "MARTA East Lake Station", "category": "marta" },
-        { "query": "MARTA East Point Station", "category": "marta" },
-        { "query": "MARTA Edgewood Candler Park Station", "category": "marta" },
-        { "query": "MARTA Five Points Station", "category": "marta" },
-        { "query": "MARTA Garnett Station", "category": "marta" },
-        { "query": "MARTA Georgia State Station", "category": "marta" },
-        { "query": "MARTA Hamilton E Holmes Station", "category": "marta" },
-        { "query": "MARTA Indian Creek Station", "category": "marta" },
-        { "query": "MARTA Inman Park Reynoldstown Station", "category": "marta" },
-        { "query": "MARTA Kensington Station", "category": "marta" },
-        { "query": "MARTA King Memorial Station", "category": "marta" },
-        { "query": "MARTA Lakewood Ft McPherson Station", "category": "marta" },
-        { "query": "MARTA Lenox Station", "category": "marta" },
-        { "query": "MARTA Lindbergh Center Station", "category": "marta" },
-        { "query": "MARTA Medical Center Station", "category": "marta" },
-        { "query": "MARTA Midtown Station", "category": "marta" },
-        { "query": "MARTA North Avenue Station", "category": "marta" },
-        { "query": "MARTA North Springs Station", "category": "marta" },
-        { "query": "MARTA Oakland City Station", "category": "marta" },
-        { "query": "MARTA Peachtree Center Station", "category": "marta" },
-        { "query": "MARTA Sandy Springs Station", "category": "marta" },
-        { "query": "MARTA SEC District Station", "category": "marta" },
-        { "query": "MARTA Vine City Station", "category": "marta" },
-        { "query": "MARTA West End Station", "category": "marta" },
-        { "query": "MARTA West Lake Station", "category": "marta" }
-      ]
-    },
-    {
-      "name": "parks-trails",
-      "mode": "tiled",
-      "searches": [
-        { "query": "park", "category": "park" },
-        { "query": "city park", "category": "park" },
-        { "query": "nature preserve", "category": "park" },
-        { "query": "greenway", "category": "park" },
-        { "query": "trail", "category": "trail" },
-        { "query": "walking trail", "category": "trail" },
-        { "query": "multi-use trail", "category": "trail" },
-        { "query": "trailhead", "category": "trail" },
-        { "query": "greenway trail", "category": "trail" }
+        { "query": "Sprouts Farmers Market", "category": "grocery" },
+        { "query": "Costco", "category": "grocery" },
+        { "query": "Sam's Club", "category": "grocery" },
+        { "query": "The Fresh Market", "category": "grocery" }
       ]
     }
   ]

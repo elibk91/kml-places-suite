@@ -26,7 +26,7 @@ public sealed class KmlConsoleRunnerTests
 
         await File.WriteAllTextAsync(inputPath, JsonSerializer.Serialize(request));
 
-        var exitCode = await KmlConsoleRunner.RunAsync(
+        var exitCode = await KmlConsoleProgram.RunAsync(
             ["--input", inputPath, "--output", outputPath],
             TextWriter.Null,
             TextWriter.Null);

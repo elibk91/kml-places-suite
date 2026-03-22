@@ -1,53 +1,83 @@
 using System.Text.Json;
 using KmlGenerator.Core.Models;
 using KmlGenerator.Core.Services;
-
-return await KmlConsoleRunner.RunAsync(args, Console.Out, Console.Error);
-
-/// <summary>
-/// Console signpost: this host only handles file I/O and delegates the actual KML work to the shared service.
-/// </summary>
-public static class KmlConsoleRunner
+using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+return await KmlConsoleProgram.RunAsync(args, Console.Out, Console.Error);
+public static class KmlConsoleProgram
 {
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
+        var services = new ServiceCollection();
+        services.AddLogging(builder =>
+        {
+            builder.AddSimpleConsole(console =>
+            {
+                console.TimestampFormat = "HH:mm:ss.fff ";
+                console.SingleLine = true;
+            });
+            builder.SetMinimumLevel(LogLevel.Trace);
+        });
+        services.AddKmlSuiteTracing();
+        services.AddTracedSingleton<IKmlGenerationService, KmlGenerationService>();
+        services.AddTracedSingleton<IKmlConsoleApp, KmlConsoleRunner>();
+        await using var serviceProvider = services.BuildServiceProvider();
+        return await serviceProvider.GetRequiredService<IKmlConsoleApp>().RunAsync(args, output, error);
+    }
+}
+public sealed class KmlConsoleRunner : IKmlConsoleApp
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true
+    };
+    private readonly ILogger<KmlConsoleRunner> _logger;
+    private readonly IKmlGenerationService _service;
+    public KmlConsoleRunner(ILogger<KmlConsoleRunner> logger, IKmlGenerationService service)
+    {
+        _logger = logger;
+        _service = service;
+    }
+    public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        using var _ = MethodTrace.Enter(_logger, nameof(KmlConsoleRunner), new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
             await error.WriteLineAsync("Usage: kml-console --input request.json --output outline.kml");
             return 1;
         }
-
         try
         {
             var requestText = await File.ReadAllTextAsync(parsed.Value.InputPath);
             var request = JsonSerializer.Deserialize<GenerateKmlRequest>(requestText, JsonOptions);
-
+            _logger.LogInformation("Loaded KML request from {InputPath}", parsed.Value.InputPath);
             if (request is null)
             {
                 await error.WriteLineAsync("The request file did not contain a valid JSON payload.");
                 return 1;
             }
-
-            var service = new KmlGenerationService();
-            var result = service.Generate(request);
-
+            var result = _service.Generate(request);
             await File.WriteAllTextAsync(parsed.Value.OutputPath, result.Kml);
+            _logger.LogInformation("Wrote KML output to {OutputPath} with {BoundaryPointCount} boundary points", parsed.Value.OutputPath, result.BoundaryPointCount);
             await output.WriteLineAsync($"Saved {result.BoundaryPointCount} outline dots to {parsed.Value.OutputPath}");
             return 0;
         }
         catch (Exception exception)
         {
+            _logger.LogError(exception, "KML console runner failed");
             await error.WriteLineAsync(exception.Message);
             return 1;
         }
     }
-
-    private static ConsoleArguments? ParseArguments(IReadOnlyList<string> args)
+    private ConsoleArguments? ParseArguments(IReadOnlyList<string> args)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(KmlConsoleRunner));
         string? inputPath = null;
         string? outputPath = null;
-
         for (var index = 0; index < args.Count; index++)
         {
             switch (args[index])
@@ -60,20 +90,11 @@ public static class KmlConsoleRunner
                     break;
             }
         }
-
         if (string.IsNullOrWhiteSpace(inputPath) || string.IsNullOrWhiteSpace(outputPath))
         {
             return null;
         }
-
         return new ConsoleArguments(inputPath, outputPath);
     }
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        WriteIndented = true
-    };
-
     private readonly record struct ConsoleArguments(string InputPath, string OutputPath);
 }

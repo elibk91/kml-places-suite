@@ -1,26 +1,61 @@
 using System.Globalization;
 using System.IO.Compression;
 using System.Net;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using PlacesGatherer.Console.Models;
 
-return await ArcGeometryExtractorRunner.RunAsync(args, Console.Out, Console.Error);
+return await ArcGeometryExtractorProgram.RunAsync(args, Console.Out, Console.Error);
 
 /// <summary>
 /// Console signpost: this host extracts authoritative ARC park/trail geometry into normalized point records.
 /// </summary>
-public static class ArcGeometryExtractorRunner
+public static class ArcGeometryExtractorProgram
 {
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
+        var services = new ServiceCollection();
+        services.AddLogging(builder =>
+        {
+            builder.AddSimpleConsole(console =>
+            {
+                console.TimestampFormat = "HH:mm:ss.fff ";
+                console.SingleLine = true;
+            });
+            builder.SetMinimumLevel(LogLevel.Trace);
+        });
+        services.AddKmlSuiteTracing();
+        services.AddTracedSingleton<IArcGeometryExtractorApp, ArcGeometryExtractorApp>();
+
+        await using var serviceProvider = services.BuildServiceProvider();
+        return await serviceProvider.GetRequiredService<IArcGeometryExtractorApp>().RunAsync(args, output, error);
+    }
+}
+
+public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
+{
+    private readonly ILogger<ArcGeometryExtractorApp> _logger;
+
+    public ArcGeometryExtractorApp(ILogger<ArcGeometryExtractorApp> logger)
+    {
+        _logger = logger;
+    }
+
+    public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        using var _ = MethodTrace.Enter(_logger, nameof(ArcGeometryExtractorApp), new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
-            await error.WriteLineAsync("Usage: arc-geometry-extractor --input parks.kml --input trails.kmz --output points.jsonl [--park-output parks.jsonl] [--trail-output trails.jsonl] [--feature-output features.jsonl]");
+            await error.WriteLineAsync("Usage: arc-geometry-extractor --input parks.kml --input trails.kmz --output points.jsonl [--park-output parks.jsonl] [--trail-output trails.jsonl] [--feature-output features.jsonl] [--park-outline-kml-output parks.kml]");
             return 1;
         }
 
@@ -31,6 +66,7 @@ public static class ArcGeometryExtractorRunner
             var parkPoints = new List<NormalizedPlaceRecord>();
             var trailPoints = new List<NormalizedPlaceRecord>();
             var features = new List<ArcFeatureRecord>();
+            var parkPolygons = new List<ParkPolygonRecord>();
 
             foreach (var inputPath in parsed.Value.InputPaths)
             {
@@ -70,20 +106,38 @@ public static class ArcGeometryExtractorRunner
 
                     if (polygons.Length > 0)
                     {
+                        if (!ShouldKeepParkFeature(metadata))
+                        {
+                            continue;
+                        }
+
                         var polygonPoints = polygons
-                            .SelectMany(ParsePolygonPoints)
+                            .Select(ParsePolygonRings)
+                            .Where(rings => rings.Count > 0)
                             .ToArray();
 
                         if (polygonPoints.Length > 0)
                         {
-                            features.Add(BuildFeatureRecord(sourceFileName, featureName, "park", "polygon", metadata, polygonPoints.Length));
+                            parkPolygons.Add(new ParkPolygonRecord(sourceFileName, featureName, metadata, polygonPoints));
+
+                            var outlinePoints = polygonPoints
+                                .SelectMany(DensifyPolygonBoundaryPoints)
+                                .ToArray();
+
+                            if (outlinePoints.Length == 0)
+                            {
+                                continue;
+                            }
+
+                            var sourceVertexCount = polygonPoints.Sum(rings => rings.Sum(ring => ring.Count));
+                            features.Add(BuildFeatureRecord(sourceFileName, featureName, "park", "polygon", metadata, sourceVertexCount));
 
                             var records = BuildPointRecords(
-                                polygonPoints,
+                                outlinePoints,
                                 sourceFileName,
                                 featureName,
                                 "park",
-                                "polygon",
+                                "polygon-densified-edge",
                                 metadata,
                                 placemarkIndex);
 
@@ -148,6 +202,12 @@ public static class ArcGeometryExtractorRunner
                         continue;
                     }
 
+                    if (category.Equals("trail", StringComparison.OrdinalIgnoreCase)
+                        && !ShouldKeepTrailFeature(metadata, linePoints))
+                    {
+                        continue;
+                    }
+
                     features.Add(BuildFeatureRecord(sourceFileName, featureName, category, "line", metadata, linePoints.Length));
 
                     var lineRecords = BuildPointRecords(
@@ -176,17 +236,22 @@ public static class ArcGeometryExtractorRunner
 
             if (!string.IsNullOrWhiteSpace(parsed.Value.ParkOutputPath))
             {
-                await WriteJsonLinesAsync(parsed.Value.ParkOutputPath!, parkPoints);
+                await WriteJsonLinesAsync(parsed.Value.ParkOutputPath, parkPoints);
             }
 
             if (!string.IsNullOrWhiteSpace(parsed.Value.TrailOutputPath))
             {
-                await WriteJsonLinesAsync(parsed.Value.TrailOutputPath!, trailPoints);
+                await WriteJsonLinesAsync(parsed.Value.TrailOutputPath, trailPoints);
             }
 
             if (!string.IsNullOrWhiteSpace(parsed.Value.FeatureOutputPath))
             {
-                await WriteJsonLinesAsync(parsed.Value.FeatureOutputPath!, features);
+                await WriteJsonLinesAsync(parsed.Value.FeatureOutputPath, features);
+            }
+
+            if (!string.IsNullOrWhiteSpace(parsed.Value.ParkOutlineKmlOutputPath))
+            {
+                await WriteParkOutlineKmlAsync(parsed.Value.ParkOutlineKmlOutputPath, parkPolygons);
             }
 
             await output.WriteLineAsync($"Saved {allPoints.Count} ARC-derived points to {parsed.Value.OutputPath}");
@@ -194,6 +259,7 @@ public static class ArcGeometryExtractorRunner
         }
         catch (Exception exception)
         {
+            _logger.LogError(exception, "ARC geometry extractor failed");
             await error.WriteLineAsync(exception.Message);
             return 1;
         }
@@ -396,11 +462,30 @@ public static class ArcGeometryExtractorRunner
         return sourceFileName;
     }
 
-    private static IEnumerable<GeoPoint> ParsePolygonPoints(XElement polygon) =>
-        polygon
+    private static IReadOnlyList<IReadOnlyList<GeoPoint>> ParsePolygonRings(XElement polygon)
+    {
+        var outerRing = polygon
             .Descendants()
-            .Where(element => element.Name.LocalName.Equals("coordinates", StringComparison.Ordinal))
-            .SelectMany(ParseCoordinates);
+            .FirstOrDefault(element =>
+                element.Name.LocalName.Equals("outerBoundaryIs", StringComparison.Ordinal));
+
+        var rings = new List<IReadOnlyList<GeoPoint>>();
+        if (outerRing is not null)
+        {
+            var ringPoints = outerRing
+                .Descendants()
+                .Where(element => element.Name.LocalName.Equals("coordinates", StringComparison.Ordinal))
+                .SelectMany(ParseCoordinates)
+                .ToArray();
+
+            if (ringPoints.Length > 0)
+            {
+                rings.Add(ringPoints);
+            }
+        }
+
+        return rings;
+    }
 
     private static IEnumerable<GeoPoint> ParsePointValues(XElement point) =>
         point
@@ -525,8 +610,181 @@ public static class ArcGeometryExtractorRunner
         || value.Contains("beltline", StringComparison.Ordinal)
         || value.Contains("path", StringComparison.Ordinal);
 
+    private static IReadOnlyList<GeoPoint> DensifyPolygonBoundaryPoints(IReadOnlyList<IReadOnlyList<GeoPoint>> polygonRings)
+    {
+        var points = new List<GeoPoint>();
+
+        foreach (var ring in polygonRings)
+        {
+            if (ring.Count == 0)
+            {
+                continue;
+            }
+
+            for (var index = 0; index < ring.Count - 1; index++)
+            {
+                var start = ring[index];
+                var end = ring[index + 1];
+                points.Add(start);
+
+                var segmentFeet = ComputeDistanceFeet(start, end);
+                var extraPointCount = Math.Max(0, (int)Math.Floor(segmentFeet / ParkOutlineSpacingFeet) - 1);
+                for (var pointIndex = 1; pointIndex <= extraPointCount; pointIndex++)
+                {
+                    var fraction = (pointIndex * ParkOutlineSpacingFeet) / segmentFeet;
+                    points.Add(Interpolate(start, end, fraction));
+                }
+            }
+
+            points.Add(ring[^1]);
+        }
+
+        return DeduplicatePoints(points);
+    }
+
+    private static GeoPoint Interpolate(GeoPoint start, GeoPoint end, double fraction) =>
+        new(
+            start.Latitude + ((end.Latitude - start.Latitude) * fraction),
+            start.Longitude + ((end.Longitude - start.Longitude) * fraction));
+
+    private static IReadOnlyList<GeoPoint> DeduplicatePoints(IReadOnlyList<GeoPoint> points)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var deduped = new List<GeoPoint>(points.Count);
+        foreach (var point in points)
+        {
+            var key = $"{Math.Round(point.Latitude, 7):F7}|{Math.Round(point.Longitude, 7):F7}";
+            if (seen.Add(key))
+            {
+                deduped.Add(point);
+            }
+        }
+
+        return deduped;
+    }
+
     private static string? GetMetadataValue(IReadOnlyDictionary<string, string> metadata, string key) =>
         metadata.TryGetValue(key, out var value) ? value : null;
+
+    private static bool ShouldKeepParkFeature(IReadOnlyDictionary<string, string> metadata)
+    {
+        if (TryGetSquareFeet(metadata, out var squareFeet))
+        {
+            return squareFeet >= MinimumParkSquareFeet;
+        }
+
+        return true;
+    }
+
+    private static bool ShouldKeepTrailFeature(IReadOnlyDictionary<string, string> metadata, IReadOnlyList<GeoPoint> linePoints)
+    {
+        if (TryGetLengthMiles(metadata, out var miles))
+        {
+            return miles >= MinimumTrailMiles;
+        }
+
+        if (TryGetShapeLengthFeet(metadata, out var feet))
+        {
+            return feet >= MinimumTrailFeet;
+        }
+
+        return ComputePolylineLengthFeet(linePoints) >= MinimumTrailFeet;
+    }
+
+    private static bool TryGetSquareFeet(IReadOnlyDictionary<string, string> metadata, out double squareFeet)
+    {
+        if (TryParseDouble(GetMetadataValue(metadata, "AllParks_Fields_Park_Size_SQFT"), out squareFeet))
+        {
+            return true;
+        }
+
+        if (TryParseDouble(GetMetadataValue(metadata, "Park_Size_SQFT"), out squareFeet))
+        {
+            return true;
+        }
+
+        if (TryGetAcres(metadata, out var acres))
+        {
+            squareFeet = acres * SquareFeetPerAcre;
+            return true;
+        }
+
+        squareFeet = 0;
+        return false;
+    }
+
+    private static bool TryGetAcres(IReadOnlyDictionary<string, string> metadata, out double acres)
+    {
+        if (TryParseDouble(GetMetadataValue(metadata, "AllParks_Fields_Park_Size_Acres"), out acres))
+        {
+            return true;
+        }
+
+        return TryParseDouble(GetMetadataValue(metadata, "Park_Size_Acres"), out acres);
+    }
+
+    private static bool TryGetLengthMiles(IReadOnlyDictionary<string, string> metadata, out double miles)
+    {
+        if (TryParseDouble(GetMetadataValue(metadata, "Length"), out miles))
+        {
+            return true;
+        }
+
+        miles = 0;
+        return false;
+    }
+
+    private static bool TryGetShapeLengthFeet(IReadOnlyDictionary<string, string> metadata, out double feet)
+    {
+        if (TryParseDouble(GetMetadataValue(metadata, "Shape__Length"), out feet))
+        {
+            return true;
+        }
+
+        feet = 0;
+        return false;
+    }
+
+    private static bool TryParseDouble(string? value, out double parsed)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Equals("Null", StringComparison.OrdinalIgnoreCase))
+        {
+            parsed = 0;
+            return false;
+        }
+
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+    }
+
+    private static double ComputePolylineLengthFeet(IReadOnlyList<GeoPoint> points)
+    {
+        var totalFeet = 0d;
+        for (var index = 1; index < points.Count; index++)
+        {
+            totalFeet += ComputeDistanceFeet(points[index - 1], points[index]);
+        }
+
+        return totalFeet;
+    }
+
+    private static double ComputeDistanceFeet(GeoPoint start, GeoPoint end)
+    {
+        const double earthRadiusFeet = 20_925_524.9d;
+        var latitudeDelta = DegreesToRadians(end.Latitude - start.Latitude);
+        var longitudeDelta = DegreesToRadians(end.Longitude - start.Longitude);
+        var startLatitude = DegreesToRadians(start.Latitude);
+        var endLatitude = DegreesToRadians(end.Latitude);
+
+        var sinLatitude = Math.Sin(latitudeDelta / 2d);
+        var sinLongitude = Math.Sin(longitudeDelta / 2d);
+        var a = (sinLatitude * sinLatitude)
+                + (Math.Cos(startLatitude) * Math.Cos(endLatitude) * sinLongitude * sinLongitude);
+        var c = 2d * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1d - a));
+        return earthRadiusFeet * c;
+    }
+
+    private static double DegreesToRadians(double degrees) =>
+        degrees * (Math.PI / 180d);
 
     private static string Normalize(string value) =>
         value
@@ -547,13 +805,56 @@ public static class ArcGeometryExtractorRunner
         await File.WriteAllLinesAsync(outputPath, lines);
     }
 
-    private static (IReadOnlyList<string> InputPaths, string OutputPath, string? ParkOutputPath, string? TrailOutputPath, string? FeatureOutputPath)? ParseArguments(IReadOnlyList<string> args)
+    private static async Task WriteParkOutlineKmlAsync(string outputPath, IReadOnlyList<ParkPolygonRecord> parkPolygons)
     {
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine("""<?xml version="1.0" encoding="UTF-8"?>""");
+        builder.AppendLine("""<kml xmlns="http://www.opengis.net/kml/2.2">""");
+        builder.AppendLine("  <Document>");
+        builder.AppendLine("    <name>ARC True Park Outlines</name>");
+        builder.AppendLine("""    <Style id="park-outline"><LineStyle><color>ffddaa00</color><width>2</width></LineStyle><PolyStyle><color>33ddaa00</color></PolyStyle></Style>""");
+
+        foreach (var park in parkPolygons.OrderBy(record => record.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            builder.AppendLine($"    <Folder><name>{SecurityElement.Escape(park.Name)}</name>");
+            foreach (var ringSet in park.Rings)
+            {
+                builder.AppendLine($"      <Placemark><name>{SecurityElement.Escape(park.Name)}</name><styleUrl>#park-outline</styleUrl><Polygon><outerBoundaryIs><LinearRing><coordinates>");
+                foreach (var ring in ringSet)
+                {
+                    foreach (var point in ring)
+                    {
+                        builder.AppendLine($"{point.Longitude.ToString(CultureInfo.InvariantCulture)},{point.Latitude.ToString(CultureInfo.InvariantCulture)},0");
+                    }
+                }
+
+                builder.AppendLine("      </coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>");
+            }
+
+            builder.AppendLine("    </Folder>");
+        }
+
+        builder.AppendLine("  </Document>");
+        builder.AppendLine("</kml>");
+
+        await File.WriteAllTextAsync(outputPath, builder.ToString());
+    }
+
+    private (IReadOnlyList<string> InputPaths, string OutputPath, string? ParkOutputPath, string? TrailOutputPath, string? FeatureOutputPath, string? ParkOutlineKmlOutputPath)? ParseArguments(IReadOnlyList<string> args)
+    {
+        using var _ = MethodTrace.Enter(_logger, nameof(ArcGeometryExtractorApp));
         var inputPaths = new List<string>();
         string? outputPath = null;
         string? parkOutputPath = null;
         string? trailOutputPath = null;
         string? featureOutputPath = null;
+        string? parkOutlineKmlOutputPath = null;
 
         for (var index = 0; index < args.Count; index++)
         {
@@ -574,17 +875,26 @@ public static class ArcGeometryExtractorRunner
                 case "--feature-output" when index + 1 < args.Count:
                     featureOutputPath = args[++index];
                     break;
+                case "--park-outline-kml-output" when index + 1 < args.Count:
+                    parkOutlineKmlOutputPath = args[++index];
+                    break;
             }
         }
 
         return inputPaths.Count == 0 || string.IsNullOrWhiteSpace(outputPath)
             ? null
-            : (inputPaths, outputPath, parkOutputPath, trailOutputPath, featureOutputPath);
+            : (inputPaths, outputPath, parkOutputPath, trailOutputPath, featureOutputPath, parkOutlineKmlOutputPath);
     }
 
     private static readonly Regex MetadataRowPattern = new(
         @"<tr>\s*<td>(?<key>.*?)</td>\s*<td>(?<value>.*?)</td>\s*</tr>",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private const double SquareFeetPerAcre = 43_560d;
+    private const double MinimumParkSquareFeet = 800d;
+    private const double MinimumTrailMiles = 1.65d;
+    private const double MinimumTrailFeet = MinimumTrailMiles * 5_280d;
+    private const double ParkOutlineSpacingFeet = 50d;
 
     private static readonly HashSet<string> AllowedTrailTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -627,6 +937,11 @@ public static class ArcGeometryExtractorRunner
     };
 
     private sealed record GeoPoint(double Latitude, double Longitude);
+    private sealed record ParkPolygonRecord(
+        string SourceFile,
+        string Name,
+        IReadOnlyDictionary<string, string> Metadata,
+        IReadOnlyList<IReadOnlyList<IReadOnlyList<GeoPoint>>> Rings);
 
     public sealed record class ArcFeatureRecord
     {

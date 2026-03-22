@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
 using PlacesGatherer.Console.Models;
 using PlacesGatherer.Console.Services;
 
@@ -31,7 +32,7 @@ public sealed class GooglePlacesClientTests
                     "application/json")
             });
 
-        var client = new GooglePlacesClient(new HttpClient(handler));
+        var client = new GooglePlacesClient(new HttpClient(handler), new NullLogger<GooglePlacesClient>());
 
         var results = await client.SearchAsync(
             new PlacesSearchDefinition { Query = "Starbucks", Category = "coffee" },
@@ -78,7 +79,7 @@ public sealed class GooglePlacesClientTests
             };
         });
 
-        var client = new GooglePlacesClient(new HttpClient(handler));
+        var client = new GooglePlacesClient(new HttpClient(handler), new NullLogger<GooglePlacesClient>());
 
         var results = await client.SearchAsync(
             new PlacesSearchDefinition { Query = "park", Category = "park" },
@@ -107,7 +108,7 @@ public sealed class GooglePlacesClientTests
     [Fact]
     public void Expand_BuildsBaseAndExpandedQueries()
     {
-        var expanded = PlacesSearchExpander.Expand(new PlacesSearchDefinition
+        var expanded = new PlacesSearchExpander(new NullLogger<PlacesSearchExpander>()).Expand(new PlacesSearchDefinition
         {
             Query = "Piedmont Park",
             Category = "park",
@@ -128,7 +129,7 @@ public sealed class GooglePlacesClientTests
     [Fact]
     public void Normalize_AddsHints_WhenNamesConflict()
     {
-        var normalized = PlaceNameNormalizer.Normalize(
+        var normalized = new PlaceNameNormalizer(new NullLogger<PlaceNameNormalizer>()).Normalize(
         [
             new NormalizedPlaceRecord
             {
@@ -156,3 +157,4 @@ public sealed class GooglePlacesClientTests
         Assert.Contains(normalized, record => record.Name == "Planet Fitness | Piedmont Ave NE");
     }
 }
+

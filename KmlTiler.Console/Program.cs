@@ -1,16 +1,60 @@
 using System.Text.Json;
 using KmlGenerator.Core.Models;
 using KmlGenerator.Core.Services;
+using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
-return await KmlTilerRunner.RunAsync(args, Console.Out, Console.Error);
+return await KmlTilerProgram.RunAsync(args, Console.Out, Console.Error);
+
+public static class KmlTilerProgram
+{
+    public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging(builder =>
+        {
+            builder.AddSimpleConsole(console =>
+            {
+                console.TimestampFormat = "HH:mm:ss.fff ";
+                console.SingleLine = true;
+            });
+            builder.SetMinimumLevel(LogLevel.Trace);
+        });
+        services.AddKmlSuiteTracing();
+        services.AddTracedSingleton<IKmlGenerationService, KmlGenerationService>();
+        services.AddTracedSingleton<IKmlTilerApp, KmlTilerRunner>();
+
+        await using var serviceProvider = services.BuildServiceProvider();
+        return await serviceProvider.GetRequiredService<IKmlTilerApp>().RunAsync(args, output, error);
+    }
+}
 
 /// <summary>
 /// Console signpost: this host walks a fixed lat/lon grid and runs the existing KML generator tile by tile.
 /// </summary>
-public static class KmlTilerRunner
+public sealed class KmlTilerRunner : IKmlTilerApp
 {
-    public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
+    private readonly ILogger<KmlTilerRunner> _logger;
+    private readonly IKmlGenerationService _service;
+
+    public KmlTilerRunner(ILogger<KmlTilerRunner> logger, IKmlGenerationService service)
+    {
+        _logger = logger;
+        _service = service;
+    }
+
+    public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        using var _ = MethodTrace.Enter(_logger, nameof(KmlTilerRunner), new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -34,8 +78,8 @@ public static class KmlTilerRunner
                 .Select(location => location.Category.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            _logger.LogInformation("Loaded tile request with {LocationCount} locations across {CategoryCount} categories", request.Locations.Count, requiredCategories.Length);
 
-            var service = new KmlGenerationService();
             var summaries = new List<TileSummary>();
             var row = 0;
 
@@ -85,7 +129,7 @@ public static class KmlTilerRunner
                         PaddingDegrees = request.PaddingDegrees
                     };
 
-                    var result = service.Generate(tileRequest);
+                    var result = _service.Generate(tileRequest);
                     summary.BoundaryPointCount = result.BoundaryPointCount;
 
                     if (result.BoundaryPointCount <= 0)
@@ -112,17 +156,19 @@ public static class KmlTilerRunner
             await File.WriteAllTextAsync(summaryPath, JsonSerializer.Serialize(summaries, JsonOptions));
 
             var writtenCount = summaries.Count(summary => summary.Status == "written");
+            _logger.LogInformation("Processed {TileCount} tiles and wrote {WrittenCount} tile KML files", summaries.Count, writtenCount);
             await output.WriteLineAsync($"Processed {summaries.Count} tiles and wrote {writtenCount} non-empty tile KML files to {parsed.OutputDirectory}");
             return 0;
         }
         catch (Exception exception)
         {
+            _logger.LogError(exception, "KML tiler failed");
             await error.WriteLineAsync(exception.Message);
             return 1;
         }
     }
 
-    private static bool IsInsideTile(
+    private bool IsInsideTile(
         LocationInput location,
         double north,
         double south,
@@ -133,6 +179,7 @@ public static class KmlTilerRunner
         double overallWest,
         double overallEast)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(KmlTilerRunner));
         var includeSouthEdge = Math.Abs(south - overallSouth) < double.Epsilon;
         var includeEastEdge = Math.Abs(east - overallEast) < double.Epsilon;
 
@@ -145,8 +192,9 @@ public static class KmlTilerRunner
         return latitudeMatches && longitudeMatches;
     }
 
-    private static TilerArguments? ParseArguments(IReadOnlyList<string> args)
+    private TilerArguments? ParseArguments(IReadOnlyList<string> args)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(KmlTilerRunner));
         string? inputPath = null;
         string? outputDirectory = null;
         double? north = null;
@@ -225,13 +273,6 @@ public static class KmlTilerRunner
             longitudeStep.Value);
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
-    };
-
     private sealed record TilerArguments(
         string InputPath,
         string OutputDirectory,
@@ -271,3 +312,4 @@ public static class KmlTilerRunner
         public string? KmlPath { get; set; }
     }
 }
+

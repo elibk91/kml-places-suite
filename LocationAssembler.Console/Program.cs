@@ -1,16 +1,58 @@
 using System.Text.Json;
 using KmlGenerator.Core.Models;
+using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using LocationAssembler.Console;
 using PlacesGatherer.Console.Models;
 
-return await LocationAssemblerRunner.RunAsync(args, Console.Out, Console.Error);
+return await LocationAssemblerProgram.RunAsync(args, Console.Out, Console.Error);
+
+public static class LocationAssemblerProgram
+{
+    public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging(builder =>
+        {
+            builder.AddSimpleConsole(console =>
+            {
+                console.TimestampFormat = "HH:mm:ss.fff ";
+                console.SingleLine = true;
+            });
+            builder.SetMinimumLevel(LogLevel.Trace);
+        });
+        services.AddKmlSuiteTracing();
+        services.AddTracedSingleton<ILocationAssemblerApp, LocationAssemblerRunner>();
+
+        await using var serviceProvider = services.BuildServiceProvider();
+        return await serviceProvider.GetRequiredService<ILocationAssemblerApp>().RunAsync(args, output, error);
+    }
+}
 
 /// <summary>
 /// Console signpost: this host converts normalized gathered points into the flat KML request contract.
 /// </summary>
-public static class LocationAssemblerRunner
+public sealed class LocationAssemblerRunner : ILocationAssemblerApp
 {
-    public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
+    private readonly ILogger<LocationAssemblerRunner> _logger;
+
+    public LocationAssemblerRunner(ILogger<LocationAssemblerRunner> logger)
+    {
+        _logger = logger;
+    }
+
+    public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        using var _ = MethodTrace.Enter(_logger, nameof(LocationAssemblerRunner), new Dictionary<string, object?> { ["ArgumentCount"] = args.Length });
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
@@ -24,6 +66,7 @@ public static class LocationAssemblerRunner
 
             foreach (var inputPath in parsed.Value.InputPaths)
             {
+                var fileRecordCount = 0;
                 foreach (var line in await File.ReadAllLinesAsync(inputPath))
                 {
                     if (string.IsNullOrWhiteSpace(line))
@@ -38,7 +81,9 @@ public static class LocationAssemblerRunner
                     }
 
                     records.Add(record);
+                    fileRecordCount++;
                 }
+                _logger.LogInformation("Read {FileRecordCount} normalized records from {InputPath}", fileRecordCount, inputPath);
             }
 
             var locations = records
@@ -52,24 +97,29 @@ public static class LocationAssemblerRunner
                 .Distinct(LocationInputComparer.Instance)
                 .ToArray();
 
+            _logger.LogInformation("Deduplicated {InputRecordCount} records into {UniqueLocationCount} unique locations", records.Count, locations.Length);
+
             var request = new GenerateKmlRequest
             {
                 Locations = locations
             };
 
             await File.WriteAllTextAsync(parsed.Value.OutputPath, JsonSerializer.Serialize(request, JsonOptions));
+            _logger.LogInformation("Assembled {RecordCount} records into {LocationCount} unique locations at {OutputPath}", records.Count, locations.Length, parsed.Value.OutputPath);
             await output.WriteLineAsync($"Saved {locations.Length} unique points to {parsed.Value.OutputPath}");
             return 0;
         }
         catch (Exception exception)
         {
+            _logger.LogError(exception, "Location assembler failed");
             await error.WriteLineAsync(exception.Message);
             return 1;
         }
     }
 
-    private static (IReadOnlyList<string> InputPaths, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
+    private (IReadOnlyList<string> InputPaths, string OutputPath)? ParseArguments(IReadOnlyList<string> args)
     {
+        using var _ = MethodTrace.Enter(_logger, nameof(LocationAssemblerRunner));
         var inputPaths = new List<string>();
         string? outputPath = null;
 
@@ -90,13 +140,6 @@ public static class LocationAssemblerRunner
             ? null
             : (inputPaths, outputPath);
     }
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
-    };
 
     private sealed class LocationInputComparer : IEqualityComparer<LocationInput>
     {
@@ -125,3 +168,6 @@ public static class LocationAssemblerRunner
         }
     }
 }
+
+
+

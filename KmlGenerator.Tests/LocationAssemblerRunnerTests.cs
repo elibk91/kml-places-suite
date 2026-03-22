@@ -26,7 +26,7 @@ public sealed class LocationAssemblerRunnerTests
                 """{"query":"Atlanta BeltLine Eastside Trail access","category":"trail","placeId":"trail-1","name":"Atlanta BeltLine Eastside Trail","formattedAddress":"Atlanta, GA","latitude":33.7648,"longitude":-84.3680,"types":["park"],"sourceQueryType":"expanded"}"""
             ]);
 
-        var exitCode = await LocationAssemblerRunner.RunAsync(
+        var exitCode = await LocationAssemblerProgram.RunAsync(
             ["--input", inputPath, "--input", secondInputPath, "--output", outputPath],
             TextWriter.Null,
             TextWriter.Null);
@@ -39,7 +39,7 @@ public sealed class LocationAssemblerRunnerTests
         });
 
         Assert.NotNull(request);
-        Assert.Equal(3, request!.Locations.Count);
+        Assert.Equal(3, request.Locations.Count);
         Assert.Contains(request.Locations, location => location.Label == "Piedmont Park");
         Assert.Contains(request.Locations, location => location.Label == "Piedmont Park | Monroe Dr");
         Assert.Contains(request.Locations, location => location.Label == "Atlanta BeltLine Eastside Trail");
