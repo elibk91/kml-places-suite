@@ -50,8 +50,8 @@ public sealed class KmlApiTests : IClassFixture<WebApplicationFactory<Program>>
             RadiusMiles = 1d,
             Locations =
             [
-                new LocationInput { Latitude = 40.0d, Longitude = -73.0d, Category = "coffee" },
-                new LocationInput { Latitude = 40.0d, Longitude = -73.0d, Category = "grocery" }
+                new LocationInput { Latitude = 40.0d, Longitude = -73.0d, Category = "coffee", Label = "Coffee" },
+                new LocationInput { Latitude = 40.0d, Longitude = -73.0d, Category = "grocery", Label = "Grocery" }
             ]
         };
 }

@@ -58,15 +58,18 @@
   - `scripts/in/master-lists/`
 - Keep durable raw source files for local geometry extraction under:
   - `scripts/in/arc-sources/`
-- Keep active workflow run products under:
-  - `scripts/out/runs/<workflow>/<RunId>/arc/`
-  - `scripts/out/runs/<workflow>/<RunId>/requests/`
-  - `scripts/out/runs/<workflow>/<RunId>/kml/`
-  - `scripts/out/runs/<workflow>/<RunId>/tiles/`
-  - `scripts/out/runs/<workflow>/<RunId>/trace/`
+- Keep active workflow run products flattened under:
+  - `scripts/out/runs/`
+- Name active run artifacts as:
+  - `<run-type>-<iso-timestamp>-<artifact-name>`
+- Use filename-safe ISO timestamps like:
+  - `2026-03-22T12-10-03`
+- Keep multi-file outputs prefixed the same way so alphabetical sort groups by run type and then by time:
+  - `category-workflow-2026-03-22T12-10-03-tiles/`
+  - `category-workflow-2026-03-22T12-10-03-trace/`
 - Keep retired workflow outputs under:
   - `scripts/out/legacy/`
-- Scripts that emit files should default to timestamped run folders so one execution does not overwrite another.
+- Scripts that emit files should default to prefixed ISO-timestamped names so one execution does not overwrite another and users can sort by filename alone.
 
 ## Repo Layout
 - Keep code projects at repo root as sibling directories.
@@ -87,7 +90,7 @@
 - Live Places integration tests are opt-in and require `RUN_LIVE_GOOGLE_TESTS=true` plus `GoogleMaps__ApiKey`.
 - Use solution builds as the supported compile path. Direct project builds are blocked so analyzer bootstrap and repo-wide rules stay consistent.
 - `scripts/legacy/build-master-lists.ps1` is a legacy entrypoint and not part of the active proof surface.
-- `scripts/run-category-workflow.ps1` builds `KmlSuite.slnx` once, regenerates ARC artifacts from source inputs, and writes active run outputs under a timestamped `scripts/out/runs/category-workflow/<RunId>/` folder.
+- `scripts/run-category-workflow.ps1` regenerates ARC artifacts from source inputs and writes active run outputs under `scripts/out/runs/` using `category-workflow-<iso-timestamp>-...` names.
 - `scripts/extract-park-outline.ps1` is diagnostic-only, but it must still invoke `ArcGeometryExtractor.Console` so the extracted park shape comes from the same ARC parsing and filtering code path as the active workflow.
 - Do not default to `scripts/run-category-workflow.ps1` for gym/grocery-only refreshes; prefer a partial refresh that reuses existing ARC outputs.
 - Proof of active runtime usage comes from proxy event logs, runtime hit summaries, and C# file classification reports under `out/runs/<workflow>/trace/`.

@@ -8,12 +8,23 @@
   ],
   "categoryRadiusMiles": {
     "gym": 0.5,
-    "grocery": 0.5,
-    "marta": 0.5,
-    "park": 0.5
+    "grocery": 0.25,
+    "marta": 0.75,
+    "park": 0.75
   },
   "minimumParkSquareFeet": 500000.0,
-  "minimumTrailMiles": 1.65,
+  "minimumTrailMiles": 0.5,
+  "minimumCombinedParkTrailMiles": 1.65,
+  "pointSpacingMiles": 0.5,
+  "diagnosticPointSpacingMiles": 0.25,
+  "entityCollapsing": {
+    "enabled": true,
+    "maximumGapMiles": 0.3,
+    "eligibleCategories": [
+      "park",
+      "trail"
+    ]
+  },
   "categoryGroups": [
     {
       "targetCategory": "park",

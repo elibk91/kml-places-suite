@@ -223,25 +223,16 @@ function Invoke-DotnetCommandWithPolling {
         [string]$LogPath
     )
 
-    # Windows PowerShell 5.1 plus this shell interface buffers native child output poorly. Run dotnet in a
-    # background job and poll the emitted records so long-running workflows surface progress incrementally.
-    $job = Start-Job -ScriptBlock {
-        param([string[]]$ForwardedArguments)
-
-        & dotnet @ForwardedArguments 2>&1 | ForEach-Object {
-            [pscustomobject]@{
-                kind = 'output'
-                text = $_.ToString()
-            }
-        }
-
-        [pscustomobject]@{
-            kind = 'exit'
-            code = $LASTEXITCODE
-        }
-    } -ArgumentList (, $Arguments)
-
-    $exitCode = $null
+    # Own the dotnet child process directly so interrupted script runs do not leave stale dotnet workers
+    # holding obj/bin files open. Redirect to temp files, poll them, and kill the process in cleanup if needed.
+    $formattedArguments = $Arguments | ForEach-Object { Format-CommandArgument -Value $_ }
+    $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ("kmlsuite-dotnet-stdout-" + [guid]::NewGuid().ToString() + ".log")
+    $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ("kmlsuite-dotnet-stderr-" + [guid]::NewGuid().ToString() + ".log")
+    $stdoutOffset = 0L
+    $stderrOffset = 0L
+    $stdoutRemainder = ""
+    $stderrRemainder = ""
+    $process = $null
     $writer = $null
     if ($LogPath) {
         Ensure-ParentDirectory -Path $LogPath
@@ -250,44 +241,50 @@ function Invoke-DotnetCommandWithPolling {
     }
 
     try {
-        while ($true) {
-            foreach ($item in (Receive-Job -Job $job)) {
-                if ($item.kind -eq 'output') {
-                    Write-Host $item.text
-                    if ($writer) {
-                        $writer.WriteLine($item.text)
-                    }
-                }
-                elseif ($item.kind -eq 'exit') {
-                    $exitCode = [int]$item.code
-                }
-            }
+        $process = Start-Process -FilePath "dotnet" `
+            -ArgumentList ($formattedArguments -join ' ') `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -PassThru `
+            -WindowStyle Hidden
+        $null = $process.Handle
 
-            if ($job.State -in @('Completed', 'Failed', 'Stopped')) {
+        while ($true) {
+            $stdoutOffset, $stdoutRemainder = Write-AppendedLogContent -Path $stdoutPath -Offset $stdoutOffset -Remainder $stdoutRemainder -Writer $writer
+            $stderrOffset, $stderrRemainder = Write-AppendedLogContent -Path $stderrPath -Offset $stderrOffset -Remainder $stderrRemainder -Writer $writer
+
+            if ($process.HasExited) {
                 break
             }
 
             Start-Sleep -Milliseconds 250
         }
 
-        foreach ($item in (Receive-Job -Job $job)) {
-            if ($item.kind -eq 'output') {
-                Write-Host $item.text
-                if ($writer) {
-                    $writer.WriteLine($item.text)
-                }
-            }
-            elseif ($item.kind -eq 'exit') {
-                $exitCode = [int]$item.code
-            }
-        }
+        $stdoutOffset, $stdoutRemainder = Write-AppendedLogContent -Path $stdoutPath -Offset $stdoutOffset -Remainder $stdoutRemainder -Writer $writer -FlushRemainder
+        $stderrOffset, $stderrRemainder = Write-AppendedLogContent -Path $stderrPath -Offset $stderrOffset -Remainder $stderrRemainder -Writer $writer -FlushRemainder
+        $process.WaitForExit()
+        $exitCode = $process.ExitCode
     }
     finally {
         if ($writer) {
             $writer.Dispose()
         }
 
-        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        if ($process) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill($true)
+                    $process.WaitForExit()
+                }
+            }
+            catch {
+            }
+
+            $process.Dispose()
+        }
+
+        Remove-Item -Path $stdoutPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $stderrPath -Force -ErrorAction SilentlyContinue
     }
 
     if ($null -eq $exitCode) {
@@ -295,6 +292,88 @@ function Invoke-DotnetCommandWithPolling {
     }
 
     return $exitCode
+}
+
+function Write-AppendedLogContent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [long]$Offset,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Remainder,
+
+        [System.IO.StreamWriter]$Writer,
+
+        [switch]$FlushRemainder
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $Offset, $Remainder
+    }
+
+    $content = ""
+    $stream = $null
+    $reader = $null
+    try {
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        if ($Offset -gt $stream.Length) {
+            $Offset = 0L
+            $Remainder = ""
+        }
+
+        $stream.Seek($Offset, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $reader = [System.IO.StreamReader]::new($stream)
+        $content = $reader.ReadToEnd()
+        $Offset = $stream.Position
+    }
+    finally {
+        if ($reader) {
+            $reader.Dispose()
+        }
+        elseif ($stream) {
+            $stream.Dispose()
+        }
+    }
+
+    if ([string]::IsNullOrEmpty($content) -and -not $FlushRemainder) {
+        return $Offset, $Remainder
+    }
+
+    $combined = $Remainder + $content
+    $lines = $combined -split "(`r`n|`n|`r)"
+    $newRemainder = ""
+    if (-not $FlushRemainder -and $combined.Length -gt 0 -and $combined -notmatch "(`r`n|`n|`r)$") {
+        $newRemainder = $lines[-1]
+        if ($lines.Length -gt 1) {
+            $lines = $lines[0..($lines.Length - 2)]
+        }
+        else {
+            $lines = @()
+        }
+    }
+
+    foreach ($line in $lines) {
+        if ($line -is [string] -and $line.Length -gt 0) {
+            Write-Host $line
+            if ($Writer) {
+                $Writer.WriteLine($line)
+            }
+        }
+    }
+
+    if ($FlushRemainder -and -not [string]::IsNullOrEmpty($newRemainder)) {
+        Write-Host $newRemainder
+        if ($Writer) {
+            $Writer.WriteLine($newRemainder)
+        }
+        $newRemainder = ""
+    }
+
+    return $Offset, $newRemainder
 }
 
 function Test-IsBuildLikeDotnetCommand {

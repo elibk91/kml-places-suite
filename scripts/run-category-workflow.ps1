@@ -18,6 +18,8 @@ param(
 
     [string]$ArcFeatureOutputPath,
 
+    [string]$ArcOriginalGeometryKmlOutputPath,
+
     [string[]]$ArcMartaInputPaths,
 
     [string]$ArcMartaOutputPath,
@@ -55,14 +57,14 @@ $categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
 
 if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
     # Keep durable source KML/KMZ in-repo so active workflows do not depend on developer Downloads folders.
-    $ArcInputPaths = @(
-        (Join-Path $arcSourceRoot "City_of_Atlanta_Parks.kml"),
-        (Join-Path $arcSourceRoot "Official_Atlanta_Beltline_Trails.kml"),
-        (Join-Path $arcSourceRoot "Park_Layer_-4860561661912367000.kmz"),
-        (Join-Path $arcSourceRoot "Parks_Trails_assets.kml"),
-        (Join-Path $arcSourceRoot "Trail_Plan_Inventory_-7693997307718543817.kmz"),
-        (Join-Path $arcSourceRoot "Trails_-8511739637663957148.kmz")
-    )
+    $ArcInputPaths = @(Get-ChildItem -Path $arcSourceRoot -File |
+        Where-Object {
+            $_.Extension -in '.kml', '.kmz' `
+                -and $_.Name -notmatch '^MARTA_' `
+                -and $_.Name -notmatch '^park-outlines\.'
+        } |
+        Sort-Object Name |
+        ForEach-Object { $_.FullName })
 }
 
 if (-not $ArcMartaInputPaths -or $ArcMartaInputPaths.Count -eq 0) {
@@ -72,11 +74,15 @@ if (-not $ArcMartaInputPaths -or $ArcMartaInputPaths.Count -eq 0) {
 }
 
 if (-not $RunId) {
-    $RunId = Get-Date -Format "yyyyMMdd-HHmmss"
+    $RunId = Get-Date -Format "yyyy-MM-ddTHH-mm-ss"
 }
 
 if (-not $RunOutputDirectory) {
-    $RunOutputDirectory = Join-Path $scriptDirectory "out\runs\category-workflow\$RunId"
+    $RunOutputDirectory = Join-Path $scriptDirectory "out\runs"
+}
+
+if (-not $RunOutputDirectory.EndsWith($RunId, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $RunOutputDirectory = Join-Path $RunOutputDirectory "category-workflow-$RunId"
 }
 
 if ($KeepIntermediateArtifacts) {
@@ -87,31 +93,35 @@ else {
 }
 
 if (-not $ArcOutputPath) {
-    $ArcOutputPath = Join-Path $intermediateRoot "arc\arc-parks-trails-points.jsonl"
+    $ArcOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-arc-parks-trails-points.jsonl"
 }
 
 if (-not $ArcParkOutputPath) {
-    $ArcParkOutputPath = Join-Path $intermediateRoot "arc\arc-park-points.jsonl"
+    $ArcParkOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-arc-park-points.jsonl"
 }
 
 if (-not $ArcTrailOutputPath) {
-    $ArcTrailOutputPath = Join-Path $intermediateRoot "arc\arc-trail-points.jsonl"
+    $ArcTrailOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-arc-trail-points.jsonl"
 }
 
 if (-not $ArcFeatureOutputPath) {
-    $ArcFeatureOutputPath = Join-Path $intermediateRoot "arc\arc-features.jsonl"
+    $ArcFeatureOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-arc-features.jsonl"
+}
+
+if (-not $ArcOriginalGeometryKmlOutputPath) {
+    $ArcOriginalGeometryKmlOutputPath = Join-Path $RunOutputDirectory "arc-original-geometry.kml"
 }
 
 if (-not $ArcMartaOutputPath) {
-    $ArcMartaOutputPath = Join-Path $intermediateRoot "arc\marta-stations.arc.jsonl"
+    $ArcMartaOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-marta-stations.arc.jsonl"
 }
 
 if (-not $FinalRequestOutputPath) {
-    $FinalRequestOutputPath = Join-Path $intermediateRoot "requests\atlanta-category-request.arc.json"
+    $FinalRequestOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-atlanta-category-request.arc.json"
 }
 
 if (-not $KmlOutputPath) {
-    $KmlOutputPath = Join-Path $RunOutputDirectory "kml\atlanta-category-outline.arc.kml"
+    $KmlOutputPath = Join-Path $RunOutputDirectory "atlanta-category-outline.arc.kml"
 }
 
 if (-not $TileOutputDirectory) {
@@ -213,6 +223,19 @@ function Invoke-ArcParkTrailExtraction {
     $arguments += ([string]$categoryConfig.minimumParkSquareFeet)
     $arguments += "--minimum-trail-miles"
     $arguments += ([string]$categoryConfig.minimumTrailMiles)
+    $arguments += "--minimum-combined-park-trail-miles"
+    $arguments += ([string]$categoryConfig.minimumCombinedParkTrailMiles)
+    $arguments += "--point-spacing-miles"
+    $arguments += ([string]$categoryConfig.pointSpacingMiles)
+    if ($categoryConfig.entityCollapsing -and $categoryConfig.entityCollapsing.enabled) {
+        $arguments += "--enable-entity-collapse"
+        $arguments += "--maximum-collapse-gap-miles"
+        $arguments += ([string]$categoryConfig.entityCollapsing.maximumGapMiles)
+        foreach ($collapseCategory in $categoryConfig.entityCollapsing.eligibleCategories) {
+            $arguments += "--collapse-category"
+            $arguments += ([string]$collapseCategory)
+        }
+    }
 
     if ($ArcParkOutputPath) {
         $arguments += "--park-output"
@@ -229,10 +252,16 @@ function Invoke-ArcParkTrailExtraction {
         $arguments += (Resolve-DisplayPath -Path $ArcFeatureOutputPath)
     }
 
+    if ($ArcOriginalGeometryKmlOutputPath) {
+        $arguments += "--original-geometry-kml-output"
+        $arguments += (Resolve-DisplayPath -Path $ArcOriginalGeometryKmlOutputPath)
+    }
+
     Ensure-ParentDirectory -Path $ArcOutputPath
     if ($ArcParkOutputPath) { Ensure-ParentDirectory -Path $ArcParkOutputPath }
     if ($ArcTrailOutputPath) { Ensure-ParentDirectory -Path $ArcTrailOutputPath }
     if ($ArcFeatureOutputPath) { Ensure-ParentDirectory -Path $ArcFeatureOutputPath }
+    if ($ArcOriginalGeometryKmlOutputPath) { Ensure-ParentDirectory -Path $ArcOriginalGeometryKmlOutputPath }
     Invoke-DotnetCommand -Description "Extracting ARC park/trail geometry" -Arguments $arguments -FailureMessage "ARC geometry extractor failed."
     Assert-PathExists -Path $ArcOutputPath -FailureMessage "ARC park/trail output was not produced."
     return $ArcOutputPath
@@ -336,7 +365,7 @@ $assemblerProjectPath = Join-Path $repoRoot "LocationAssembler.Console\LocationA
 $kmlGeneratorProjectPath = Join-Path $repoRoot "KmlGenerator.Console\KmlGenerator.Console.csproj"
 $kmlTilerProjectPath = Join-Path $repoRoot "KmlTiler.Console\KmlTiler.Console.csproj"
 $requiredMasterLists = @("gyms-master.jsonl", "groceries-master.jsonl")
-$traceDirectory = Join-Path $intermediateRoot "trace"
+$traceDirectory = Join-Path $intermediateRoot "category-workflow-$RunId-trace"
 
 Write-Section -Title "Category Workflow Trace"
 # Allow callers to skip the upfront builds so multiple scripts can run in parallel without competing on shared

@@ -75,11 +75,12 @@ public sealed class GooglePlacesClient : IGooglePlacesClient
                     Category = search.Category,
                     PlaceId = place.Id ?? string.Empty,
                     Name = place.DisplayName?.Text ?? string.Empty,
-                    FormattedAddress = place.FormattedAddress,
+                    FormattedAddress = place.FormattedAddress ?? string.Empty,
                     Latitude = location.Latitude,
                     Longitude = location.Longitude,
                     Types = place.Types ?? Array.Empty<string>(),
-                    SourceQueryType = search.SourceQueryType
+                    SourceQueryType = search.SourceQueryType,
+                    SearchNames = [place.DisplayName?.Text ?? string.Empty]
                 };
             })
             .ToArray() ?? Array.Empty<NormalizedPlaceRecord>();

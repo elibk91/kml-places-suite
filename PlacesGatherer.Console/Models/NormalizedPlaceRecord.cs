@@ -2,21 +2,25 @@ namespace PlacesGatherer.Console.Models;
 
 public sealed record class NormalizedPlaceRecord
 {
-    public string Query { get; init; } = string.Empty;
+    public required string Query { get; init; }
 
-    public string Category { get; init; } = string.Empty;
+    public required string Category { get; init; }
 
-    public string PlaceId { get; init; } = string.Empty;
+    public required string PlaceId { get; init; }
 
-    public string Name { get; init; } = string.Empty;
+    public required string Name { get; init; }
 
-    public string? FormattedAddress { get; init; }
+    public required string FormattedAddress { get; init; }
 
     public double Latitude { get; init; }
 
     public double Longitude { get; init; }
 
-    public IReadOnlyList<string> Types { get; init; } = Array.Empty<string>();
+    public required IReadOnlyList<string> Types { get; init; }
 
-    public string SourceQueryType { get; init; } = "base";
+    public required string SourceQueryType { get; init; }
+
+    public required IReadOnlyList<string> SearchNames { get; init; }
+
+    public string? CollapsedEntityId { get; init; }
 }

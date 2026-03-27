@@ -69,9 +69,9 @@ public sealed class KmlGenerationServiceTests
             RadiusMiles = 0.2d,
             Locations =
             [
-                new LocationInput { Latitude = 33.7500d, Longitude = -84.3900d, Category = "gym" },
-                new LocationInput { Latitude = 33.7512d, Longitude = -84.3888d, Category = "grocery" },
-                new LocationInput { Latitude = 33.7506d, Longitude = -84.3893d, Category = "marta" }
+                new LocationInput { Latitude = 33.7500d, Longitude = -84.3900d, Category = "gym", Label = "Gym" },
+                new LocationInput { Latitude = 33.7512d, Longitude = -84.3888d, Category = "grocery", Label = "Grocery" },
+                new LocationInput { Latitude = 33.7506d, Longitude = -84.3893d, Category = "marta", Label = "Marta" }
             ]
         };
 

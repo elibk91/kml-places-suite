@@ -35,7 +35,7 @@ public sealed class GooglePlacesClientTests
         var client = new GooglePlacesClient(new HttpClient(handler), new NullLogger<GooglePlacesClient>());
 
         var results = await client.SearchAsync(
-            new PlacesSearchDefinition { Query = "Starbucks", Category = "coffee" },
+            new PlacesSearchDefinition { Query = "Starbucks", Category = "coffee", SourceQueryType = "base" },
             new RectangleBounds { North = 40.2d, South = 40.0d, East = -73.8d, West = -74.0d },
             "key");
 
@@ -82,7 +82,7 @@ public sealed class GooglePlacesClientTests
         var client = new GooglePlacesClient(new HttpClient(handler), new NullLogger<GooglePlacesClient>());
 
         var results = await client.SearchAsync(
-            new PlacesSearchDefinition { Query = "park", Category = "park" },
+            new PlacesSearchDefinition { Query = "park", Category = "park", SourceQueryType = "base" },
             new RectangleBounds { North = 33.80d, South = 33.70d, East = -84.30d, West = -84.40d },
             "key");
 
@@ -98,7 +98,7 @@ public sealed class GooglePlacesClientTests
             Bounds = new RectangleBounds { North = 1, South = 0, East = 1, West = 0 },
             Searches =
             [
-                new PlacesSearchDefinition { Query = "Starbucks", Category = "" }
+                new PlacesSearchDefinition { Query = "Starbucks", Category = "", SourceQueryType = "base" }
             ]
         };
 
@@ -112,6 +112,7 @@ public sealed class GooglePlacesClientTests
         {
             Query = "Piedmont Park",
             Category = "park",
+            SourceQueryType = "base",
             Expansion = new PlacesSearchExpansion
             {
                 Enabled = true,
@@ -139,7 +140,10 @@ public sealed class GooglePlacesClientTests
                 Name = "Planet Fitness",
                 FormattedAddress = "123 Peachtree St NE, Atlanta, GA",
                 Latitude = 1,
-                Longitude = 1
+                Longitude = 1,
+                Types = Array.Empty<string>(),
+                SourceQueryType = "base",
+                SearchNames = ["Planet Fitness"]
             },
             new NormalizedPlaceRecord
             {
@@ -149,7 +153,10 @@ public sealed class GooglePlacesClientTests
                 Name = "Planet Fitness",
                 FormattedAddress = "456 Piedmont Ave NE, Atlanta, GA",
                 Latitude = 2,
-                Longitude = 2
+                Longitude = 2,
+                Types = Array.Empty<string>(),
+                SourceQueryType = "base",
+                SearchNames = ["Planet Fitness"]
             }
         ]);
 

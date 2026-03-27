@@ -65,8 +65,8 @@ public sealed class KmlTilerRunner : IKmlTilerApp
         {
             Directory.CreateDirectory(parsed.OutputDirectory);
 
-            var requestText = await File.ReadAllTextAsync(parsed.InputPath);
-            var request = JsonSerializer.Deserialize<GenerateKmlRequest>(requestText, JsonOptions);
+            await using var requestStream = File.OpenRead(parsed.InputPath);
+            var request = await JsonSerializer.DeserializeAsync<GenerateKmlRequest>(requestStream, JsonOptions);
             if (request is null)
             {
                 throw new InvalidOperationException("The request file did not contain a valid JSON payload.");

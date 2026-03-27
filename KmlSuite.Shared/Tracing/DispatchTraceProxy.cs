@@ -5,6 +5,9 @@ namespace KmlSuite.Shared.Tracing;
 public class DispatchTraceProxy<TService> : DispatchProxy
     where TService : class
 {
+    private static readonly MethodInfo InterceptGenericTaskAsyncMethod = typeof(DispatchTraceProxy<TService>)
+        .GetMethod(nameof(InterceptGenericTaskAsync), BindingFlags.Instance | BindingFlags.Public)
+        ?? throw new InvalidOperationException("Could not find generic task interception method.");
     private TService? _target;
     private ILogger? _logger;
     private ITraceInvocationRecorder? _recorder;
@@ -44,7 +47,11 @@ public class DispatchTraceProxy<TService> : DispatchProxy
                 if (targetMethod.ReturnType.IsGenericType
                     && targetMethod.ReturnType.GetGenericTypeDefinition() == typeof(Task<>))
                 {
-                    return InterceptGenericTaskAsync((dynamic)result, logger, recorder, serviceType, implementationType, methodName, started);
+                    var resultType = targetMethod.ReturnType.GetGenericArguments()[0];
+                    var genericInterceptor = InterceptGenericTaskAsyncMethod.MakeGenericMethod(resultType);
+                    return genericInterceptor.Invoke(
+                        this,
+                        [result, logger, recorder, serviceType, implementationType, methodName, started]);
                 }
             }
             RecordOutcome(recorder, serviceType, implementationType, methodName, "completed", started.ElapsedMilliseconds, null);
@@ -58,7 +65,7 @@ public class DispatchTraceProxy<TService> : DispatchProxy
             throw exception.InnerException;
         }
     }
-    private async Task InterceptTaskAsync(Task task, ILogger logger, ITraceInvocationRecorder recorder, string serviceType, string implementationType, string methodName, Stopwatch started)
+    public async Task InterceptTaskAsync(Task task, ILogger logger, ITraceInvocationRecorder recorder, string serviceType, string implementationType, string methodName, Stopwatch started)
     {
         try
         {
@@ -73,7 +80,7 @@ public class DispatchTraceProxy<TService> : DispatchProxy
             throw;
         }
     }
-    private async Task<TResult> InterceptGenericTaskAsync<TResult>(Task<TResult> task, ILogger logger, ITraceInvocationRecorder recorder, string serviceType, string implementationType, string methodName, Stopwatch started)
+    public async Task<TResult> InterceptGenericTaskAsync<TResult>(Task<TResult> task, ILogger logger, ITraceInvocationRecorder recorder, string serviceType, string implementationType, string methodName, Stopwatch started)
     {
         try
         {

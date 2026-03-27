@@ -24,7 +24,7 @@ public sealed class GooglePlacesLiveIntegrationTests
         var placesClient = new GooglePlacesClient(client, new NullLogger<GooglePlacesClient>());
 
         var results = await placesClient.SearchAsync(
-            new PlacesSearchDefinition { Query = "Starbucks", Category = "coffee" },
+            new PlacesSearchDefinition { Query = "Starbucks", Category = "coffee", SourceQueryType = "base" },
             new RectangleBounds
             {
                 North = 40.759d,
@@ -63,6 +63,7 @@ public sealed class GooglePlacesLiveIntegrationTests
         {
             Query = "Piedmont Park",
             Category = "park",
+            SourceQueryType = "base",
             Expansion = new PlacesSearchExpansion
             {
                 Enabled = true,

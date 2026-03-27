@@ -12,9 +12,9 @@ public sealed class ArcGeometryExtractorRunnerTests
         var tempDirectory = Directory.CreateTempSubdirectory();
         var inputPath = Path.Combine(tempDirectory.FullName, "arc.kml");
         var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+        var featureOutputPath = Path.Combine(tempDirectory.FullName, "features.jsonl");
         var parkOutputPath = Path.Combine(tempDirectory.FullName, "parks.jsonl");
         var trailOutputPath = Path.Combine(tempDirectory.FullName, "trails.jsonl");
-        var featureOutputPath = Path.Combine(tempDirectory.FullName, "features.jsonl");
         var parkOutlineKmlPath = Path.Combine(tempDirectory.FullName, "park-outlines.kml");
 
         await File.WriteAllTextAsync(
@@ -52,7 +52,16 @@ public sealed class ArcGeometryExtractorRunnerTests
             """);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", inputPath, "--output", outputPath, "--park-output", parkOutputPath, "--trail-output", trailOutputPath, "--feature-output", featureOutputPath, "--park-outline-kml-output", parkOutlineKmlPath],
+            [
+                "--input", inputPath,
+                "--output", outputPath,
+                "--park-output", parkOutputPath,
+                "--trail-output", trailOutputPath,
+                "--feature-output", featureOutputPath,
+                "--original-geometry-kml-output", parkOutlineKmlPath,
+                "--minimum-park-square-feet", "1000",
+                "--minimum-combined-park-trail-miles", "0.01"
+            ],
             TextWriter.Null,
             TextWriter.Null);
 
@@ -69,11 +78,14 @@ public sealed class ArcGeometryExtractorRunnerTests
         Assert.Equal(2, trails.Count);
         Assert.Contains(parks, point => point.Types.Contains("polygon-densified-edge"));
 
-        var features = await File.ReadAllLinesAsync(featureOutputPath);
-        Assert.Equal(2, features.Length);
+        var features = await ReadFeatureRecordsAsync(featureOutputPath);
+        Assert.Equal(4, features.Count);
+        Assert.Contains(features, feature => feature.GeometryType == "collapsed-component" && feature.Category == "park");
+        Assert.Contains(features, feature => feature.GeometryType == "collapsed-component" && feature.Category == "trail");
         var parkOutlineKml = await File.ReadAllTextAsync(parkOutlineKmlPath);
         Assert.Contains("Piedmont Park", parkOutlineKml, StringComparison.Ordinal);
         Assert.Contains("<Polygon>", parkOutlineKml, StringComparison.Ordinal);
+        Assert.Contains("<LineString>", parkOutlineKml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -150,7 +162,13 @@ public sealed class ArcGeometryExtractorRunnerTests
             """);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", inputPath, "--output", outputPath],
+            [
+                "--input", inputPath,
+                "--output", outputPath,
+                "--minimum-park-square-feet", "1000",
+                "--minimum-trail-miles", "1.65",
+                "--minimum-combined-park-trail-miles", "0.01"
+            ],
             TextWriter.Null,
             TextWriter.Null);
 
@@ -185,7 +203,12 @@ public sealed class ArcGeometryExtractorRunnerTests
             """);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", inputPath, "--output", outputPath],
+            [
+                "--input", inputPath,
+                "--output", outputPath,
+                "--minimum-park-square-feet", "1000",
+                "--minimum-combined-park-trail-miles", "0.01"
+            ],
             TextWriter.Null,
             TextWriter.Null);
 
@@ -255,6 +278,7 @@ public sealed class ArcGeometryExtractorRunnerTests
         var tempDirectory = Directory.CreateTempSubdirectory();
         var inputPath = Path.Combine(tempDirectory.FullName, "arc.kml");
         var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+        var featureOutputPath = Path.Combine(tempDirectory.FullName, "features.jsonl");
 
         await File.WriteAllTextAsync(
             inputPath,
@@ -356,6 +380,129 @@ public sealed class ArcGeometryExtractorRunnerTests
             point => GetDistanceFeet(point.Latitude, point.Longitude, 33.78195649884475, -84.3781119781858) <= 60d);
     }
 
+    [Fact]
+    public async Task RunAsync_CollapsesNearbyParkAndTrailAfterThresholding()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var inputPath = Path.Combine(tempDirectory.FullName, "arc.kml");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+        var featureOutputPath = Path.Combine(tempDirectory.FullName, "features.jsonl");
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <Placemark>
+                  <name>Tiny Park</name>
+                  <description><![CDATA[<html><body><table><tr><td>AllParks_Fields_Park_Size_SQFT</td><td>700</td></tr></table></body></html>]]></description>
+                  <Polygon>
+                    <outerBoundaryIs>
+                      <LinearRing>
+                        <coordinates>-84.3738,33.7851 -84.3732,33.7851 -84.3732,33.7857 -84.3738,33.7857 -84.3738,33.7851</coordinates>
+                      </LinearRing>
+                    </outerBoundaryIs>
+                  </Polygon>
+                </Placemark>
+                <Placemark>
+                  <name>Connected Trail</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Length</td><td>1.8</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.3730,33.7854 -84.3725,33.7854</coordinates>
+                  </LineString>
+                </Placemark>
+              </Document>
+            </kml>
+            """);
+
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
+            ["--input", inputPath, "--output", outputPath, "--feature-output", featureOutputPath, "--enable-entity-collapse", "--maximum-collapse-gap-miles", "0.3"],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.NotEmpty(points);
+        Assert.All(points, point => Assert.Equal("trail", point.Category));
+        Assert.All(points, point =>
+        {
+            Assert.NotNull(point.CollapsedEntityId);
+            Assert.Contains("collapsed", point.CollapsedEntityId, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.All(points, point => Assert.Equal("Connected Trail", point.Name));
+
+        var features = await ReadFeatureRecordsAsync(featureOutputPath);
+        var collapsedFeature = Assert.Single(features.Where(feature => feature.GeometryType == "collapsed-component"));
+        Assert.Contains("Connected Trail", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Tiny Park", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RunAsync_CollapsesTransitivelyAcrossMultipleGreenEntities()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var inputPath = Path.Combine(tempDirectory.FullName, "arc.kml");
+        var outputPath = Path.Combine(tempDirectory.FullName, "points.jsonl");
+        var featureOutputPath = Path.Combine(tempDirectory.FullName, "features.jsonl");
+
+        await File.WriteAllTextAsync(
+            inputPath,
+            """
+            <kml xmlns="http://www.opengis.net/kml/2.2">
+              <Document>
+                <Placemark>
+                  <name>Park A</name>
+                  <description><![CDATA[<html><body><table><tr><td>AllParks_Fields_Park_Size_SQFT</td><td>600000</td></tr></table></body></html>]]></description>
+                  <Polygon>
+                    <outerBoundaryIs>
+                      <LinearRing>
+                        <coordinates>-84.3800,33.7800 -84.3794,33.7800 -84.3794,33.7806 -84.3800,33.7806 -84.3800,33.7800</coordinates>
+                      </LinearRing>
+                    </outerBoundaryIs>
+                  </Polygon>
+                </Placemark>
+                <Placemark>
+                  <name>Connector Trail</name>
+                  <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Length</td><td>2.0</td></tr></table></body></html>]]></description>
+                  <LineString>
+                    <coordinates>-84.3792,33.7803 -84.3770,33.7803</coordinates>
+                  </LineString>
+                </Placemark>
+                <Placemark>
+                  <name>Park B</name>
+                  <description><![CDATA[<html><body><table><tr><td>AllParks_Fields_Park_Size_SQFT</td><td>650000</td></tr></table></body></html>]]></description>
+                  <Polygon>
+                    <outerBoundaryIs>
+                      <LinearRing>
+                        <coordinates>-84.3768,33.7800 -84.3762,33.7800 -84.3762,33.7806 -84.3768,33.7806 -84.3768,33.7800</coordinates>
+                      </LinearRing>
+                    </outerBoundaryIs>
+                  </Polygon>
+                </Placemark>
+              </Document>
+            </kml>
+            """);
+
+        var exitCode = await ArcGeometryExtractorProgram.RunAsync(
+            ["--input", inputPath, "--output", outputPath, "--feature-output", featureOutputPath, "--enable-entity-collapse", "--maximum-collapse-gap-miles", "0.3"],
+            TextWriter.Null,
+            TextWriter.Null);
+
+        Assert.Equal(0, exitCode);
+
+        var points = await ReadRecordsAsync(outputPath);
+        Assert.NotEmpty(points);
+        var collapsedIds = points.Select(point => point.CollapsedEntityId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        Assert.Single(collapsedIds);
+
+        var features = await ReadFeatureRecordsAsync(featureOutputPath);
+        var collapsedFeature = Assert.Single(features.Where(feature => feature.GeometryType == "collapsed-component"));
+        Assert.Contains("Park A", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("Connector Trail", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("Park B", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
+    }
+
     private static async Task<List<NormalizedPlaceRecord>> ReadRecordsAsync(string path) =>
         (await File.ReadAllLinesAsync(path))
         .Where(line => !string.IsNullOrWhiteSpace(line))
@@ -364,6 +511,16 @@ public sealed class ArcGeometryExtractorRunnerTests
             PropertyNameCaseInsensitive = true
         }))
         .OfType<NormalizedPlaceRecord>()
+        .ToList();
+
+    private static async Task<List<FeatureRecordView>> ReadFeatureRecordsAsync(string path) =>
+        (await File.ReadAllLinesAsync(path))
+        .Where(line => !string.IsNullOrWhiteSpace(line))
+        .Select(line => JsonSerializer.Deserialize<FeatureRecordView>(line, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        }))
+        .OfType<FeatureRecordView>()
         .ToList();
 
     private static async Task CreateKmzAsync(string path, string kml)
@@ -393,4 +550,12 @@ public sealed class ArcGeometryExtractorRunnerTests
 
     private static double DegreesToRadians(double degrees) =>
         degrees * (Math.PI / 180d);
+
+    private sealed record FeatureRecordView(
+        string Name,
+        string Category,
+        string GeometryType,
+        string? CollapsedEntityId,
+        IReadOnlyList<string> SearchNames,
+        IReadOnlyList<string> MemberNames);
 }

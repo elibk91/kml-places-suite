@@ -19,10 +19,10 @@ public sealed class PlacesSearchExpander : IPlacesSearchExpander
     {
         var expanded = new List<PlacesSearchDefinition>
         {
-            search with { SourceQueryType = "base", Expansion = null }
+            search with { SourceQueryType = "base", Expansion = new PlacesSearchExpansion() }
         };
 
-        if (search.Expansion is null || !search.Expansion.Enabled)
+        if (!search.Expansion.Enabled)
         {
             _logger.LogDebug("No expansion templates enabled for query {Query}", search.Query);
             return expanded;
@@ -38,7 +38,7 @@ public sealed class PlacesSearchExpander : IPlacesSearchExpander
             {
                 Query = query.Trim(),
                 SourceQueryType = "expanded",
-                Expansion = null
+                Expansion = new PlacesSearchExpansion()
             });
         }
 

@@ -2,11 +2,11 @@ namespace PlacesGatherer.Console.Models;
 
 public sealed record class PlacesSearchDefinition
 {
-    public string Query { get; init; } = string.Empty;
+    public required string Query { get; init; }
 
-    public string Category { get; init; } = string.Empty;
+    public required string Category { get; init; }
 
-    public PlacesSearchExpansion? Expansion { get; init; }
+    public PlacesSearchExpansion Expansion { get; init; } = new();
 
-    public string SourceQueryType { get; init; } = "base";
+    public required string SourceQueryType { get; init; }
 }

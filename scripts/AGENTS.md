@@ -4,14 +4,24 @@
 - `legacy/build-master-lists.ps1`: legacy Google master-list generation only. It is not part of the active trace-proof surface.
 - `run-category-workflow.ps1`: main category assembly flow that reuses existing master lists, regenerates ARC artifacts from source inputs, and generates the whole-area overlap KML.
 - `extract-park-outline.ps1`: runs `ArcGeometryExtractor.Console` to produce the same park-outline KML shape data as the real ARC workflow, then filters that extractor output down to one named park for inspection.
+- `clean-arc-sources.ps1`: audits raw ARC KML/KMZ inputs, preserves changed originals under `scripts/in/arc-sources/legacy/<RunId>/`, and rewrites cleaned top-level source files in place.
 - `diagnose-coordinate-coverage.ps1`: reports nearest points per category for a coordinate and tells you which categories are missing inside the target radius.
 - `Common.ps1` owns shared tracing/report helpers. Active scripts are responsible for initializing and finalizing trace artifacts under `scripts/out/runs/<workflow>/<RunId>/trace/`.
 - Active scripts should build `KmlSuite.slnx` once and then run projects with `--no-build`.
 - Active scripts should reuse existing master-list artifacts; rebuilding Google-backed master lists is legacy-only behavior.
 - Do not include anything under `scripts/legacy/` in active runtime proof, trace summaries, or current workflow guidance.
 - Use `scripts/in/` for durable script-consumed artifacts and `scripts/out/` for regenerated workflow outputs.
-- `run-category-workflow.ps1` should default to one timestamped run root under `scripts/out/runs/category-workflow/<RunId>/` and derive ARC, request, KML, tile, and trace paths from that root unless a caller explicitly overrides them.
-- `extract-park-outline.ps1` should default to one timestamped run root under `scripts/out/runs/extract-park-outline/<RunId>/`, keep the extractor's intermediate ARC outputs there, and write the filtered single-park KML there unless a caller explicitly overrides it.
+- Active run outputs should be flattened directly under `scripts/out/runs/`.
+- Name active artifacts as `<run-type>-<iso-timestamp>-<artifact-name>` so alphabetical sort groups by run type and then by time.
+- Use filename-safe ISO timestamps such as `2026-03-22T12-10-03`.
+- `run-category-workflow.ps1` should default to names like:
+  - `category-workflow-<iso-timestamp>-atlanta-category-outline.arc.kml`
+  - `category-workflow-<iso-timestamp>-atlanta-category-request.arc.json`
+  - `category-workflow-<iso-timestamp>-tiles/`
+  - `category-workflow-<iso-timestamp>-trace/`
+- `extract-park-outline.ps1` should default to names like:
+  - `extract-park-outline-<iso-timestamp>-Piedmont-Park.kml`
+  - `extract-park-outline-<iso-timestamp>-arc-park-points.jsonl`
 - `legacy/build-master-lists.ps1` should default to one timestamped legacy run root under `scripts/out/legacy/build-master-lists/<RunId>/` and keep its master-list outputs and trace artifacts together there unless a caller explicitly overrides them.
 - `diagnose-coordinate-coverage.ps1` is read-only and should not create run-output folders.
 - Keep reusable master-list inputs under:

@@ -1,0 +1,94 @@
+{
+  "sources": [
+    {
+      "fileName": "Trail_Plan_Inventory_-7693997307718543817.kmz",
+      "keepIfAny": [
+        {
+          "field": "Project_Type",
+          "equalsAny": [
+            "multi use trail",
+            "multi use path",
+            "mixed use path",
+            "trail",
+            "greenway",
+            "off road pedestrian trail",
+            "bike, sw, trail",
+            "bike, diet, trail",
+            "sw, trail"
+          ]
+        },
+        {
+          "field": "Project_Type",
+          "containsAny": [
+            "trail",
+            "path",
+            "greenway"
+          ]
+        },
+        {
+          "field": "Name",
+          "containsAny": [
+            "trail",
+            "greenway",
+            "beltline",
+            "path"
+          ]
+        }
+      ],
+      "excludeIfAny": [
+        {
+          "field": "Project_Type",
+          "equalsAny": [
+            "on street bicycle facility",
+            "on street bicycle network",
+            "on street facility",
+            "sidewalk",
+            "sidewalk segment"
+          ]
+        }
+      ]
+    },
+    {
+      "fileName": "Official_Atlanta_Beltline_Trails.kml",
+      "excludeIfAny": [
+        {
+          "field": "usestatus",
+          "equalsAny": [
+            "future",
+            "under construction"
+          ]
+        },
+        {
+          "field": "status2",
+          "equalsAny": [
+            "future",
+            "under construction",
+            "in design"
+          ]
+        }
+      ]
+    },
+    {
+      "fileName": "Parks_Layer.kml",
+      "keepIfAny": [
+        {
+          "field": "Status",
+          "equalsAny": [
+            "completed"
+          ]
+        }
+      ]
+    },
+    {
+      "fileName": "City_of_Atlanta_Parks.kml",
+      "keepIfAny": [
+        {
+          "field": "AllParks_Fields_Park_Status",
+          "equalsAny": [
+            "open"
+          ]
+        }
+      ]
+    }
+  ]
+}

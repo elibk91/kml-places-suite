@@ -33,21 +33,39 @@ public static class ArcGeometryExtractorProgram
         });
         services.AddKmlSuiteTracing();
         services.AddTracedSingleton<IArcGeometryExtractorApp, ArcGeometryExtractorApp>();
+        services.AddTracedSingleton<IArcSourceReader, ArcGeometryExtractorApp.ArcSourceReader>();
+        services.AddTracedSingleton<IArcFeatureExtractor, ArcGeometryExtractorApp.ArcFeatureExtractor>();
+        services.AddTracedSingleton<IArcEntityCollapser, ArcGeometryExtractorApp.ArcEntityCollapser>();
+        services.AddTracedSingleton<IArcOutputWriter, ArcGeometryExtractorApp.ArcOutputWriter>();
 
         await using var serviceProvider = services.BuildServiceProvider();
         return await serviceProvider.GetRequiredService<IArcGeometryExtractorApp>().RunAsync(args, output, error);
     }
 }
 
-public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
+internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 {
     private const double DefaultMinimumParkSquareFeet = 800d;
     private const double DefaultMinimumTrailMiles = 1.65d;
+    private const double DefaultMinimumCombinedParkTrailMiles = 1.65d;
     private readonly ILogger<ArcGeometryExtractorApp> _logger;
+    private readonly IArcSourceReader _sourceReader;
+    private readonly IArcFeatureExtractor _featureExtractor;
+    private readonly IArcEntityCollapser _entityCollapser;
+    private readonly IArcOutputWriter _outputWriter;
 
-    public ArcGeometryExtractorApp(ILogger<ArcGeometryExtractorApp> logger)
+    public ArcGeometryExtractorApp(
+        ILogger<ArcGeometryExtractorApp> logger,
+        IArcSourceReader sourceReader,
+        IArcFeatureExtractor featureExtractor,
+        IArcEntityCollapser entityCollapser,
+        IArcOutputWriter outputWriter)
     {
         _logger = logger;
+        _sourceReader = sourceReader;
+        _featureExtractor = featureExtractor;
+        _entityCollapser = entityCollapser;
+        _outputWriter = outputWriter;
     }
 
     public async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
@@ -61,200 +79,41 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 
         try
         {
-            var processedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var allPoints = new List<NormalizedPlaceRecord>();
-            var parkPoints = new List<NormalizedPlaceRecord>();
-            var trailPoints = new List<NormalizedPlaceRecord>();
-            var features = new List<ArcFeatureRecord>();
-            var parkPolygons = new List<ParkPolygonRecord>();
+            var sourceDocuments = await _sourceReader.ReadAsync(parsed.InputPaths);
+            var pointSpacingFeet = parsed.PointSpacingMiles * 5_280d;
+            var extracted = _featureExtractor.Extract(
+                sourceDocuments,
+                Math.Max(parsed.MaximumCollapseGapMiles * 5_280d, pointSpacingFeet),
+                pointSpacingFeet,
+                parsed.MinimumParkSquareFeet,
+                parsed.MinimumTrailMiles,
+                parsed.MinimumCombinedParkTrailMiles);
+            var collapsed = _entityCollapser.Collapse(
+                extracted.CollapsibleEntities,
+                parsed.EnableEntityCollapse,
+                parsed.MaximumCollapseGapMiles,
+                parsed.CollapseEligibleCategories,
+                parsed.MinimumParkSquareFeet,
+                parsed.MinimumTrailMiles,
+                parsed.MinimumCombinedParkTrailMiles);
 
-            foreach (var inputPath in parsed.Value.InputPaths)
-            {
-                var hash = ComputeFileHash(inputPath);
-                if (!processedHashes.Add(hash))
-                {
-                    continue;
-                }
+            var allPoints = extracted.DirectPointRecords
+                .Concat(collapsed.PointRecords)
+                .ToList();
+            var parkPoints = allPoints
+                .Where(record => record.Category.Equals("park", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var trailPoints = allPoints
+                .Where(record => record.Category.Equals("trail", StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-                var sourceFileName = Path.GetFileName(inputPath);
-                var document = XDocument.Parse(await ReadSanitizedKmlAsync(inputPath), LoadOptions.None);
-                var placemarks = document
-                    .Descendants()
-                    .Where(element => element.Name.LocalName.Equals("Placemark", StringComparison.Ordinal))
-                    .ToArray();
+            var allFeatures = extracted.Features
+                .Concat(collapsed.FeatureRecords)
+                .ToList();
 
-                for (var placemarkIndex = 0; placemarkIndex < placemarks.Length; placemarkIndex++)
-                {
-                    var placemark = placemarks[placemarkIndex];
-                    var metadata = ReadMetadata(placemark);
-                    var featureName = ResolveFeatureName(ReadTrimmedChildValue(placemark, "name"), metadata, sourceFileName);
+            await _outputWriter.WriteAsync(parsed, allPoints, parkPoints, trailPoints, allFeatures, extracted.ParkPolygons, extracted.TrailLines);
 
-                    var lineStrings = placemark
-                        .Descendants()
-                        .Where(element => element.Name.LocalName.Equals("LineString", StringComparison.Ordinal))
-                        .ToArray();
-
-                    var polygons = placemark
-                        .Descendants()
-                        .Where(element => element.Name.LocalName.Equals("Polygon", StringComparison.Ordinal))
-                        .ToArray();
-
-                    var points = placemark
-                        .Descendants()
-                        .Where(element => element.Name.LocalName.Equals("Point", StringComparison.Ordinal))
-                        .ToArray();
-
-                    if (polygons.Length > 0)
-                    {
-                        if (!ShouldKeepParkFeature(metadata, parsed.Value.MinimumParkSquareFeet))
-                        {
-                            continue;
-                        }
-
-                        var polygonPoints = polygons
-                            .Select(ParsePolygonRings)
-                            .Where(rings => rings.Count > 0)
-                            .ToArray();
-
-                        if (polygonPoints.Length > 0)
-                        {
-                            parkPolygons.Add(new ParkPolygonRecord(sourceFileName, featureName, metadata, polygonPoints));
-
-                            var outlinePoints = polygonPoints
-                                .SelectMany(DensifyPolygonBoundaryPoints)
-                                .ToArray();
-
-                            if (outlinePoints.Length == 0)
-                            {
-                                continue;
-                            }
-
-                            var sourceVertexCount = polygonPoints.Sum(rings => rings.Sum(ring => ring.Count));
-                            features.Add(BuildFeatureRecord(sourceFileName, featureName, "park", "polygon", metadata, sourceVertexCount));
-
-                            var records = BuildPointRecords(
-                                outlinePoints,
-                                sourceFileName,
-                                featureName,
-                                "park",
-                                "polygon-densified-edge",
-                                metadata,
-                                placemarkIndex);
-
-                            parkPoints.AddRange(records);
-                            allPoints.AddRange(records);
-                        }
-                    }
-
-                    if (points.Length > 0)
-                    {
-                        var pointCategory = DeterminePointCategory(sourceFileName, featureName, metadata);
-                        if (pointCategory is not null)
-                        {
-                            var pointValues = points
-                                .SelectMany(ParsePointValues)
-                                .ToArray();
-
-                            if (pointValues.Length > 0)
-                            {
-                                features.Add(BuildFeatureRecord(sourceFileName, featureName, pointCategory, "point", metadata, pointValues.Length));
-
-                                var records = BuildPointRecords(
-                                    pointValues,
-                                    sourceFileName,
-                                    featureName,
-                                    pointCategory,
-                                    "point",
-                                    metadata,
-                                    placemarkIndex);
-
-                                if (pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    parkPoints.AddRange(records);
-                                }
-                                else if (pointCategory.Equals("trail", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    trailPoints.AddRange(records);
-                                }
-
-                                allPoints.AddRange(records);
-                            }
-                        }
-                    }
-
-                    if (lineStrings.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    var category = DetermineLineCategory(sourceFileName, featureName, metadata);
-                    if (category is null)
-                    {
-                        continue;
-                    }
-
-                    var linePoints = lineStrings
-                        .SelectMany(ParseLineStringPoints)
-                        .ToArray();
-
-                    if (linePoints.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    if (category.Equals("trail", StringComparison.OrdinalIgnoreCase)
-                        && !ShouldKeepTrailFeature(metadata, linePoints, parsed.Value.MinimumTrailMiles))
-                    {
-                        continue;
-                    }
-
-                    features.Add(BuildFeatureRecord(sourceFileName, featureName, category, "line", metadata, linePoints.Length));
-
-                    var lineRecords = BuildPointRecords(
-                        linePoints,
-                        sourceFileName,
-                        featureName,
-                        category,
-                        "line",
-                        metadata,
-                        placemarkIndex);
-
-                    if (category.Equals("park", StringComparison.OrdinalIgnoreCase))
-                    {
-                        parkPoints.AddRange(lineRecords);
-                    }
-                    else
-                    {
-                        trailPoints.AddRange(lineRecords);
-                    }
-
-                    allPoints.AddRange(lineRecords);
-                }
-            }
-
-            await WriteJsonLinesAsync(parsed.Value.OutputPath, allPoints);
-
-            if (!string.IsNullOrWhiteSpace(parsed.Value.ParkOutputPath))
-            {
-                await WriteJsonLinesAsync(parsed.Value.ParkOutputPath, parkPoints);
-            }
-
-            if (!string.IsNullOrWhiteSpace(parsed.Value.TrailOutputPath))
-            {
-                await WriteJsonLinesAsync(parsed.Value.TrailOutputPath, trailPoints);
-            }
-
-            if (!string.IsNullOrWhiteSpace(parsed.Value.FeatureOutputPath))
-            {
-                await WriteJsonLinesAsync(parsed.Value.FeatureOutputPath, features);
-            }
-
-            if (!string.IsNullOrWhiteSpace(parsed.Value.ParkOutlineKmlOutputPath))
-            {
-                await WriteParkOutlineKmlAsync(parsed.Value.ParkOutlineKmlOutputPath, parkPolygons);
-            }
-
-            await output.WriteLineAsync($"Saved {allPoints.Count} ARC-derived points to {parsed.Value.OutputPath}");
+            await output.WriteLineAsync($"Saved {allPoints.Count} ARC-derived points to {parsed.OutputPath}");
             return 0;
         }
         catch (Exception exception)
@@ -309,12 +168,285 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 Latitude = point.Latitude,
                 Longitude = point.Longitude,
                 Types = types,
-                SourceQueryType = "arc"
+                SourceQueryType = "arc",
+                SearchNames = BuildSearchNames(featureName, metadata)
             });
         }
 
         return records;
     }
+
+    private static CollapsibleEntity BuildCollapsibleEntity(
+        string rawEntityId,
+        string sourceFileName,
+        string featureName,
+        string category,
+        string geometryType,
+        IReadOnlyDictionary<string, string> metadata,
+        int placemarkIndex,
+        IReadOnlyList<NormalizedPlaceRecord> outputRecords,
+        IReadOnlyList<GeoPoint> collapsePoints,
+        double collapseGridCellSizeFeet,
+        bool tryGetParkSquareFeet,
+        double parkSquareFeet,
+        bool tryGetTrailFeet,
+        double trailFeet,
+        double linearFeet)
+    {
+        var searchNames = BuildSearchNames(featureName, metadata);
+        var projectedCollapsePoints = ProjectPoints(collapsePoints);
+        var collapseBounds = ComputeBounds(projectedCollapsePoints);
+        var coveredCells = EnumerateCoveredCells(collapseBounds, collapseGridCellSizeFeet);
+        return new CollapsibleEntity(
+            rawEntityId,
+            sourceFileName,
+            featureName,
+            category,
+            geometryType,
+            metadata,
+            placemarkIndex,
+            outputRecords,
+            collapsePoints,
+            projectedCollapsePoints,
+            collapseBounds,
+            coveredCells,
+            searchNames,
+            tryGetParkSquareFeet ? parkSquareFeet : null,
+            category.Equals("park", StringComparison.OrdinalIgnoreCase) && !tryGetParkSquareFeet,
+            tryGetTrailFeet ? trailFeet : null,
+            category.Equals("trail", StringComparison.OrdinalIgnoreCase) && !tryGetTrailFeet,
+            linearFeet);
+    }
+
+    private static ArcCollapsedEntityResult CollapseEntities(
+        IReadOnlyList<CollapsibleEntity> entities,
+        bool enableEntityCollapse,
+        double maximumCollapseGapMiles,
+        IReadOnlySet<string> collapseEligibleCategories,
+        double minimumParkSquareFeet,
+        double minimumTrailMiles,
+        double minimumCombinedParkTrailMiles)
+    {
+        if (entities.Count == 0)
+        {
+            return new ArcCollapsedEntityResult(Array.Empty<NormalizedPlaceRecord>(), Array.Empty<ArcFeatureRecord>());
+        }
+
+        var unionFind = new UnionFind(entities.Count);
+        var maximumCollapseGapFeet = maximumCollapseGapMiles * 5_280d;
+
+        if (enableEntityCollapse && maximumCollapseGapFeet > 0d)
+        {
+            var grid = BuildSpatialIndex(entities);
+            var candidateCache = BuildCandidateCache(entities, grid);
+            var pairConnectivityCache = new Dictionary<long, bool>();
+
+            for (var leftIndex = 0; leftIndex < entities.Count; leftIndex++)
+            {
+                var left = entities[leftIndex];
+                if (!collapseEligibleCategories.Contains(left.Category))
+                {
+                    continue;
+                }
+
+                foreach (var rightIndex in candidateCache[leftIndex])
+                {
+                    if (rightIndex <= leftIndex)
+                    {
+                        continue;
+                    }
+
+                    var right = entities[rightIndex];
+                    if (!collapseEligibleCategories.Contains(right.Category))
+                    {
+                        continue;
+                    }
+
+                    if (unionFind.Find(leftIndex) == unionFind.Find(rightIndex))
+                    {
+                        continue;
+                    }
+
+                    var pairKey = BuildPairKey(leftIndex, rightIndex);
+                    if (!pairConnectivityCache.TryGetValue(pairKey, out var isConnected))
+                    {
+                        isConnected =
+                            ApproximateBoundingBoxGapFeet(left.CollapseBounds, right.CollapseBounds) <= maximumCollapseGapFeet
+                            && ComputeMinimumGapFeet(left.CollapseProjectedPoints, right.CollapseProjectedPoints, maximumCollapseGapFeet) <= maximumCollapseGapFeet;
+                        pairConnectivityCache[pairKey] = isConnected;
+                    }
+
+                    if (isConnected)
+                    {
+                        unionFind.Union(leftIndex, rightIndex);
+                    }
+                }
+            }
+        }
+
+        var collapsedRecords = new List<NormalizedPlaceRecord>();
+        var collapsedFeatures = new List<ArcFeatureRecord>();
+        foreach (var component in entities
+                     .Select((entity, index) => new { Entity = entity, Root = unionFind.Find(index) })
+                     .GroupBy(item => item.Root, item => item.Entity))
+        {
+            var memberEntities = component.ToArray();
+            if (!ShouldKeepCollapsedComponent(memberEntities, minimumCombinedParkTrailMiles))
+            {
+                continue;
+            }
+
+            var collapsedCategory = DetermineCollapsedCategory(memberEntities);
+            var memberNames = memberEntities
+                .SelectMany(entity => entity.SearchNames)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var collapsedLabel = string.Join(" + ", memberEntities
+                .Select(entity => entity.FeatureName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+            var collapsedDisplayLabel = BuildCollapsedDisplayLabel(memberEntities);
+            var collapsedEntityId = BuildCollapsedEntityId(memberEntities);
+            var collapsedTypes = memberEntities
+                .SelectMany(entity => entity.OutputRecords)
+                .SelectMany(record => record.Types)
+                .Append("collapsed-entity")
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var outputPoints = DeduplicatePoints(memberEntities
+                .SelectMany(entity => entity.OutputRecords)
+                .Select(record => new GeoPoint(record.Latitude, record.Longitude))
+                .ToArray());
+
+            collapsedFeatures.Add(new ArcFeatureRecord
+            {
+                SourceFile = "collapsed-component",
+                Name = collapsedDisplayLabel,
+                Category = collapsedCategory,
+                GeometryType = "collapsed-component",
+                PointCount = outputPoints.Count,
+                Metadata = new Dictionary<string, string>
+                {
+                    ["CollapsedLabel"] = collapsedLabel,
+                    ["MemberCount"] = memberEntities.Length.ToString(CultureInfo.InvariantCulture)
+                },
+                CollapsedEntityId = collapsedEntityId,
+                SearchNames = memberNames,
+                MemberNames = memberEntities
+                    .Select(entity => entity.FeatureName)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+            });
+
+            for (var pointIndex = 0; pointIndex < outputPoints.Count; pointIndex++)
+            {
+                var point = outputPoints[pointIndex];
+                collapsedRecords.Add(new NormalizedPlaceRecord
+                {
+                    Query = collapsedDisplayLabel,
+                    Category = collapsedCategory,
+                    PlaceId = BuildCollapsedPlaceId(collapsedEntityId, pointIndex),
+                    Name = collapsedDisplayLabel,
+                    FormattedAddress = BuildCollapsedAddressHint(memberEntities),
+                    Latitude = point.Latitude,
+                    Longitude = point.Longitude,
+                    Types = collapsedTypes,
+                    SourceQueryType = "arc",
+                    SearchNames = [collapsedDisplayLabel],
+                    CollapsedEntityId = collapsedEntityId
+                });
+            }
+        }
+
+        return new ArcCollapsedEntityResult(collapsedRecords, collapsedFeatures);
+    }
+
+    private static IReadOnlyList<string> BuildSearchNames(string featureName, IReadOnlyDictionary<string, string> metadata)
+    {
+        var searchNames = new List<string>();
+        if (!string.IsNullOrWhiteSpace(featureName))
+        {
+            searchNames.Add(featureName.Trim());
+        }
+
+        foreach (var key in PreferredNameKeys)
+        {
+            if (metadata.TryGetValue(key, out var value)
+                && !string.IsNullOrWhiteSpace(value)
+                && !value.Equals("Null", StringComparison.OrdinalIgnoreCase))
+            {
+                searchNames.Add(value.Trim());
+            }
+        }
+
+        return searchNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string DetermineCollapsedCategory(IReadOnlyList<CollapsibleEntity> entities) =>
+        entities.Any(entity => entity.Category.Equals("park", StringComparison.OrdinalIgnoreCase))
+            ? "park"
+            : "trail";
+
+    private static string BuildCollapsedDisplayLabel(IReadOnlyList<CollapsibleEntity> entities)
+    {
+        var names = entities
+            .Select(entity => entity.FeatureName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (names.Length == 0)
+        {
+            return "Collapsed entity";
+        }
+
+        if (names.Length == 1)
+        {
+            return names[0];
+        }
+
+        return $"{names[0]} + {names.Length - 1} more";
+    }
+
+    private static bool ShouldKeepCollapsedComponent(
+        IReadOnlyList<CollapsibleEntity> entities,
+        double minimumCombinedParkTrailMiles)
+    {
+        var minimumCombinedFeet = minimumCombinedParkTrailMiles * 5_280d;
+        var combinedLinearFeet = entities.Sum(entity => entity.LinearFeet);
+        return combinedLinearFeet >= minimumCombinedFeet;
+    }
+
+    private static string BuildCollapsedEntityId(IReadOnlyList<CollapsibleEntity> entities)
+    {
+        var identity = string.Join("|", entities
+            .Select(entity => entity.RawEntityId)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase));
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
+        return $"collapsed-{Convert.ToHexString(bytes[..12])}";
+    }
+
+    private static string BuildCollapsedPlaceId(string collapsedEntityId, int pointIndex)
+    {
+        var raw = $"{collapsedEntityId}|{pointIndex}";
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+        return Convert.ToHexString(bytes[..12]);
+    }
+
+    private static string BuildCollapsedAddressHint(IReadOnlyList<CollapsibleEntity> entities) =>
+        string.Join(
+            " | ",
+            entities.Select(entity => entity.SourceFile)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase));
 
     private static string BuildAddressHint(string sourceFileName, IReadOnlyDictionary<string, string> metadata)
     {
@@ -392,11 +524,12 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         || (character >= 0x20 && character <= 0xD7FF)
         || (character >= 0xE000 && character <= 0xFFFD);
 
-    private static string ComputeFileHash(string inputPath)
+    private static string ComputeFileIdentity(string inputPath)
     {
+        var fileInfo = new FileInfo(inputPath);
         using var stream = File.OpenRead(inputPath);
         var bytes = SHA256.HashData(stream);
-        return Convert.ToHexString(bytes);
+        return $"{fileInfo.Length}:{Convert.ToHexString(bytes)}";
     }
 
     private static IReadOnlyDictionary<string, string> ReadMetadata(XElement placemark)
@@ -610,7 +743,9 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         || value.Contains("beltline", StringComparison.Ordinal)
         || value.Contains("path", StringComparison.Ordinal);
 
-    private static IReadOnlyList<GeoPoint> DensifyPolygonBoundaryPoints(IReadOnlyList<IReadOnlyList<GeoPoint>> polygonRings)
+    private static IReadOnlyList<GeoPoint> DensifyPolygonBoundaryPoints(
+        IReadOnlyList<IReadOnlyList<GeoPoint>> polygonRings,
+        double pointSpacingFeet)
     {
         var points = new List<GeoPoint>();
 
@@ -628,10 +763,10 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 points.Add(start);
 
                 var segmentFeet = ComputeDistanceFeet(start, end);
-                var extraPointCount = Math.Max(0, (int)Math.Floor(segmentFeet / ParkOutlineSpacingFeet) - 1);
+                var extraPointCount = Math.Max(0, (int)Math.Floor(segmentFeet / pointSpacingFeet) - 1);
                 for (var pointIndex = 1; pointIndex <= extraPointCount; pointIndex++)
                 {
-                    var fraction = (pointIndex * ParkOutlineSpacingFeet) / segmentFeet;
+                    var fraction = (pointIndex * pointSpacingFeet) / segmentFeet;
                     points.Add(Interpolate(start, end, fraction));
                 }
             }
@@ -639,6 +774,33 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
             points.Add(ring[^1]);
         }
 
+        return DeduplicatePoints(points);
+    }
+
+    private static IReadOnlyList<GeoPoint> DensifyPolylinePoints(IReadOnlyList<GeoPoint> linePoints, double pointSpacingFeet)
+    {
+        if (linePoints.Count == 0)
+        {
+            return Array.Empty<GeoPoint>();
+        }
+
+        var points = new List<GeoPoint>(linePoints.Count);
+        for (var index = 0; index < linePoints.Count - 1; index++)
+        {
+            var start = linePoints[index];
+            var end = linePoints[index + 1];
+            points.Add(start);
+
+            var segmentFeet = ComputeDistanceFeet(start, end);
+            var extraPointCount = Math.Max(0, (int)Math.Floor(segmentFeet / pointSpacingFeet) - 1);
+            for (var pointIndex = 1; pointIndex <= extraPointCount; pointIndex++)
+            {
+                var fraction = (pointIndex * pointSpacingFeet) / segmentFeet;
+                points.Add(Interpolate(start, end, fraction));
+            }
+        }
+
+        points.Add(linePoints[^1]);
         return DeduplicatePoints(points);
     }
 
@@ -714,6 +876,9 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         return false;
     }
 
+    private static double? GetParkSquareFeet(IReadOnlyDictionary<string, string> metadata) =>
+        TryGetSquareFeet(metadata, out var squareFeet) ? squareFeet : null;
+
     private static bool TryGetAcres(IReadOnlyDictionary<string, string> metadata, out double acres)
     {
         if (TryParseDouble(GetMetadataValue(metadata, "AllParks_Fields_Park_Size_Acres"), out acres))
@@ -768,6 +933,195 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         return totalFeet;
     }
 
+    private static double ComputePolygonPerimeterFeet(IReadOnlyList<IReadOnlyList<GeoPoint>> rings)
+    {
+        var totalFeet = 0d;
+        foreach (var ring in rings)
+        {
+            totalFeet += ComputePolylineLengthFeet(ring);
+        }
+
+        return totalFeet;
+    }
+
+    private static double ResolveTrailLengthFeet(IReadOnlyDictionary<string, string> metadata, IReadOnlyList<GeoPoint> linePoints)
+    {
+        if (TryGetLengthMiles(metadata, out var miles))
+        {
+            return miles * 5_280d;
+        }
+
+        if (TryGetShapeLengthFeet(metadata, out var feet))
+        {
+            return feet;
+        }
+
+        return ComputePolylineLengthFeet(linePoints);
+    }
+
+    private static ProjectedBounds ComputeBounds(IReadOnlyList<ProjectedPoint> points)
+    {
+        if (points.Count == 0)
+        {
+            return new ProjectedBounds(0d, 0d, 0d, 0d);
+        }
+
+        var minX = points[0].X;
+        var maxX = points[0].X;
+        var minY = points[0].Y;
+        var maxY = points[0].Y;
+
+        for (var index = 1; index < points.Count; index++)
+        {
+            var point = points[index];
+            minX = Math.Min(minX, point.X);
+            maxX = Math.Max(maxX, point.X);
+            minY = Math.Min(minY, point.Y);
+            maxY = Math.Max(maxY, point.Y);
+        }
+
+        return new ProjectedBounds(minX, maxX, minY, maxY);
+    }
+
+    private static double ApproximateBoundingBoxGapFeet(ProjectedBounds left, ProjectedBounds right)
+    {
+        var xGapFeet = Math.Max(0d, Math.Max(left.MinX - right.MaxX, right.MinX - left.MaxX));
+        var yGapFeet = Math.Max(0d, Math.Max(left.MinY - right.MaxY, right.MinY - left.MaxY));
+        return Math.Sqrt((xGapFeet * xGapFeet) + (yGapFeet * yGapFeet));
+    }
+
+    private static double ComputeMinimumGapFeet(IReadOnlyList<ProjectedPoint> leftPoints, IReadOnlyList<ProjectedPoint> rightPoints, double earlyExitThresholdFeet)
+    {
+        if (leftPoints.Count == 0 || rightPoints.Count == 0)
+        {
+            return double.MaxValue;
+        }
+
+        var minimumGapFeet = double.MaxValue;
+        foreach (var leftPoint in leftPoints)
+        {
+            foreach (var rightPoint in rightPoints)
+            {
+                var distanceFeet = ComputeProjectedDistanceFeet(leftPoint, rightPoint);
+                if (distanceFeet < minimumGapFeet)
+                {
+                    minimumGapFeet = distanceFeet;
+                    if (minimumGapFeet <= earlyExitThresholdFeet)
+                    {
+                        return minimumGapFeet;
+                    }
+                }
+            }
+        }
+
+        return minimumGapFeet;
+    }
+
+    private static Dictionary<(int X, int Y), List<int>> BuildSpatialIndex(IReadOnlyList<CollapsibleEntity> entities)
+    {
+        var grid = new Dictionary<(int X, int Y), List<int>>();
+        for (var index = 0; index < entities.Count; index++)
+        {
+            foreach (var cell in entities[index].CoveredCells)
+            {
+                if (!grid.TryGetValue(cell, out var members))
+                {
+                    members = [];
+                    grid[cell] = members;
+                }
+
+                members.Add(index);
+            }
+        }
+
+        return grid;
+    }
+
+    private static IReadOnlyList<int>[] BuildCandidateCache(
+        IReadOnlyList<CollapsibleEntity> entities,
+        IReadOnlyDictionary<(int X, int Y), List<int>> grid)
+    {
+        var candidateCache = new IReadOnlyList<int>[entities.Count];
+        for (var index = 0; index < entities.Count; index++)
+        {
+            var seen = new HashSet<int>();
+            var candidates = new List<int>();
+            foreach (var cell in entities[index].CoveredCells)
+            {
+                if (!grid.TryGetValue(cell, out var members))
+                {
+                    continue;
+                }
+
+                foreach (var member in members)
+                {
+                    if (seen.Add(member))
+                    {
+                        candidates.Add(member);
+                    }
+                }
+            }
+
+            candidates.Sort();
+            candidateCache[index] = candidates;
+        }
+
+        return candidateCache;
+    }
+
+    private static IReadOnlyList<(int X, int Y)> EnumerateCoveredCells(ProjectedBounds bounds, double cellSizeFeet)
+    {
+        var minCell = ToGridCell(bounds.MinX, bounds.MinY, cellSizeFeet);
+        var maxCell = ToGridCell(bounds.MaxX, bounds.MaxY, cellSizeFeet);
+        var cells = new List<(int X, int Y)>((maxCell.X - minCell.X + 3) * (maxCell.Y - minCell.Y + 3));
+
+        for (var x = minCell.X - 1; x <= maxCell.X + 1; x++)
+        {
+            for (var y = minCell.Y - 1; y <= maxCell.Y + 1; y++)
+            {
+                cells.Add((x, y));
+            }
+        }
+
+        return cells;
+    }
+
+    private static (int X, int Y) ToGridCell(double xFeet, double yFeet, double cellSizeFeet) =>
+        ((int)Math.Floor(xFeet / cellSizeFeet), (int)Math.Floor(yFeet / cellSizeFeet));
+
+    private static long BuildPairKey(int leftIndex, int rightIndex) =>
+        ((long)leftIndex << 32) | (uint)rightIndex;
+
+    private static IReadOnlyList<ProjectedPoint> ProjectPoints(IReadOnlyList<GeoPoint> points)
+    {
+        if (points.Count == 0)
+        {
+            return Array.Empty<ProjectedPoint>();
+        }
+
+        var projected = new ProjectedPoint[points.Count];
+        for (var index = 0; index < points.Count; index++)
+        {
+            projected[index] = ProjectPoint(points[index]);
+        }
+
+        return projected;
+    }
+
+    private static ProjectedPoint ProjectPoint(GeoPoint point)
+    {
+        var yFeet = point.Latitude * FeetPerDegreeLatitude;
+        var xFeet = point.Longitude * FeetPerDegreeLongitudeAtReferenceLatitude;
+        return new ProjectedPoint(xFeet, yFeet);
+    }
+
+    private static double ComputeProjectedDistanceFeet(ProjectedPoint start, ProjectedPoint end)
+    {
+        var deltaX = end.X - start.X;
+        var deltaY = end.Y - start.Y;
+        return Math.Sqrt((deltaX * deltaX) + (deltaY * deltaY));
+    }
+
     private static double ComputeDistanceFeet(GeoPoint start, GeoPoint end)
     {
         const double earthRadiusFeet = 20_925_524.9d;
@@ -806,7 +1160,10 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         await File.WriteAllLinesAsync(outputPath, lines);
     }
 
-    private static async Task WriteParkOutlineKmlAsync(string outputPath, IReadOnlyList<ParkPolygonRecord> parkPolygons)
+    private static async Task WriteOriginalGeometryKmlAsync(
+        string outputPath,
+        IReadOnlyList<ParkPolygonRecord> parkPolygons,
+        IReadOnlyList<TrailLineRecord> trailLines)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -818,8 +1175,9 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         builder.AppendLine("""<?xml version="1.0" encoding="UTF-8"?>""");
         builder.AppendLine("""<kml xmlns="http://www.opengis.net/kml/2.2">""");
         builder.AppendLine("  <Document>");
-        builder.AppendLine("    <name>ARC True Park Outlines</name>");
+        builder.AppendLine("    <name>ARC Original Geometry</name>");
         builder.AppendLine("""    <Style id="park-outline"><LineStyle><color>ffddaa00</color><width>2</width></LineStyle><PolyStyle><color>33ddaa00</color></PolyStyle></Style>""");
+        builder.AppendLine("""    <Style id="trail-line"><LineStyle><color>ff00aaee</color><width>3</width></LineStyle></Style>""");
 
         foreach (var park in parkPolygons.OrderBy(record => record.Name, StringComparer.OrdinalIgnoreCase))
         {
@@ -841,22 +1199,38 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
             builder.AppendLine("    </Folder>");
         }
 
+        foreach (var trail in trailLines.OrderBy(record => record.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            builder.AppendLine($"    <Placemark><name>{SecurityElement.Escape(trail.Name)}</name><styleUrl>#trail-line</styleUrl><LineString><coordinates>");
+            foreach (var point in trail.Points)
+            {
+                builder.AppendLine($"{point.Longitude.ToString(CultureInfo.InvariantCulture)},{point.Latitude.ToString(CultureInfo.InvariantCulture)},0");
+            }
+
+            builder.AppendLine("    </coordinates></LineString></Placemark>");
+        }
+
         builder.AppendLine("  </Document>");
         builder.AppendLine("</kml>");
 
         await File.WriteAllTextAsync(outputPath, builder.ToString());
     }
 
-    private (IReadOnlyList<string> InputPaths, string OutputPath, string? ParkOutputPath, string? TrailOutputPath, string? FeatureOutputPath, string? ParkOutlineKmlOutputPath, double MinimumParkSquareFeet, double MinimumTrailMiles)? ParseArguments(IReadOnlyList<string> args)
+    private ExtractorArguments? ParseArguments(IReadOnlyList<string> args)
     {
         var inputPaths = new List<string>();
         string? outputPath = null;
         string? parkOutputPath = null;
         string? trailOutputPath = null;
         string? featureOutputPath = null;
-        string? parkOutlineKmlOutputPath = null;
+        string? originalGeometryKmlOutputPath = null;
         var minimumParkSquareFeet = DefaultMinimumParkSquareFeet;
         var minimumTrailMiles = DefaultMinimumTrailMiles;
+        var minimumCombinedParkTrailMiles = DefaultMinimumCombinedParkTrailMiles;
+        var pointSpacingMiles = DefaultPointSpacingMiles;
+        var enableEntityCollapse = false;
+        var maximumCollapseGapMiles = DefaultMaximumCollapseGapMiles;
+        var collapseEligibleCategories = new HashSet<string>(DefaultCollapseEligibleCategories, StringComparer.OrdinalIgnoreCase);
 
         for (var index = 0; index < args.Count; index++)
         {
@@ -877,8 +1251,8 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 case "--feature-output" when index + 1 < args.Count:
                     featureOutputPath = args[++index];
                     break;
-                case "--park-outline-kml-output" when index + 1 < args.Count:
-                    parkOutlineKmlOutputPath = args[++index];
+                case "--original-geometry-kml-output" when index + 1 < args.Count:
+                    originalGeometryKmlOutputPath = args[++index];
                     break;
                 case "--minimum-park-square-feet" when index + 1 < args.Count:
                     minimumParkSquareFeet = double.Parse(args[++index], CultureInfo.InvariantCulture);
@@ -886,12 +1260,40 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 case "--minimum-trail-miles" when index + 1 < args.Count:
                     minimumTrailMiles = double.Parse(args[++index], CultureInfo.InvariantCulture);
                     break;
+                case "--minimum-combined-park-trail-miles" when index + 1 < args.Count:
+                    minimumCombinedParkTrailMiles = double.Parse(args[++index], CultureInfo.InvariantCulture);
+                    break;
+                case "--point-spacing-miles" when index + 1 < args.Count:
+                    pointSpacingMiles = double.Parse(args[++index], CultureInfo.InvariantCulture);
+                    break;
+                case "--enable-entity-collapse":
+                    enableEntityCollapse = true;
+                    break;
+                case "--maximum-collapse-gap-miles" when index + 1 < args.Count:
+                    maximumCollapseGapMiles = double.Parse(args[++index], CultureInfo.InvariantCulture);
+                    break;
+                case "--collapse-category" when index + 1 < args.Count:
+                    collapseEligibleCategories.Add(args[++index]);
+                    break;
             }
         }
 
         return inputPaths.Count == 0 || string.IsNullOrWhiteSpace(outputPath)
             ? null
-            : (inputPaths, outputPath, parkOutputPath, trailOutputPath, featureOutputPath, parkOutlineKmlOutputPath, minimumParkSquareFeet, minimumTrailMiles);
+            : new ExtractorArguments(
+                inputPaths,
+                outputPath,
+                parkOutputPath,
+                trailOutputPath,
+                featureOutputPath,
+                originalGeometryKmlOutputPath,
+                minimumParkSquareFeet,
+                minimumTrailMiles,
+                minimumCombinedParkTrailMiles,
+                pointSpacingMiles,
+                enableEntityCollapse,
+                maximumCollapseGapMiles,
+                collapseEligibleCategories);
     }
 
     private static readonly Regex MetadataRowPattern = new(
@@ -899,7 +1301,13 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
     private const double SquareFeetPerAcre = 43_560d;
-    private const double ParkOutlineSpacingFeet = 50d;
+    private const double DefaultPointSpacingMiles = 0.5d;
+    private const double DefaultMaximumCollapseGapMiles = 0.3d;
+    private const double CollapseReferenceLatitudeDegrees = 33.75d;
+    private const double FeetPerDegreeLatitude = 364_000d;
+    private static readonly double FeetPerDegreeLongitudeAtReferenceLatitude =
+        FeetPerDegreeLatitude * Math.Cos(DegreesToRadians(CollapseReferenceLatitudeDegrees));
+    private static readonly string[] DefaultCollapseEligibleCategories = ["park", "trail"];
 
     private static readonly HashSet<string> AllowedTrailTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -941,14 +1349,102 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private sealed record GeoPoint(double Latitude, double Longitude);
-    private sealed record ParkPolygonRecord(
+    internal sealed record ExtractorArguments(
+        IReadOnlyList<string> InputPaths,
+        string OutputPath,
+        string? ParkOutputPath,
+        string? TrailOutputPath,
+        string? FeatureOutputPath,
+        string? OriginalGeometryKmlOutputPath,
+        double MinimumParkSquareFeet,
+        double MinimumTrailMiles,
+        double MinimumCombinedParkTrailMiles,
+        double PointSpacingMiles,
+        bool EnableEntityCollapse,
+        double MaximumCollapseGapMiles,
+        IReadOnlySet<string> CollapseEligibleCategories);
+
+    internal sealed record GeoPoint(double Latitude, double Longitude);
+    internal sealed record ProjectedPoint(double X, double Y);
+    internal sealed record ProjectedBounds(double MinX, double MaxX, double MinY, double MaxY);
+    internal sealed record ParkPolygonRecord(
         string SourceFile,
         string Name,
         IReadOnlyDictionary<string, string> Metadata,
         IReadOnlyList<IReadOnlyList<IReadOnlyList<GeoPoint>>> Rings);
+    internal sealed record TrailLineRecord(
+        string SourceFile,
+        string Name,
+        IReadOnlyDictionary<string, string> Metadata,
+        IReadOnlyList<GeoPoint> Points);
+    internal sealed record CollapsibleEntity(
+        string RawEntityId,
+        string SourceFile,
+        string FeatureName,
+        string Category,
+        string GeometryType,
+        IReadOnlyDictionary<string, string> Metadata,
+        int PlacemarkIndex,
+        IReadOnlyList<NormalizedPlaceRecord> OutputRecords,
+        IReadOnlyList<GeoPoint> CollapsePoints,
+        IReadOnlyList<ProjectedPoint> CollapseProjectedPoints,
+        ProjectedBounds CollapseBounds,
+        IReadOnlyList<(int X, int Y)> CoveredCells,
+        IReadOnlyList<string> SearchNames,
+        double? ParkSquareFeet,
+        bool HasUnknownParkSize,
+        double? TrailFeet,
+        bool HasUnknownTrailLength,
+        double LinearFeet);
 
-    public sealed record class ArcFeatureRecord
+    private sealed class UnionFind
+    {
+        private readonly int[] _parent;
+        private readonly int[] _rank;
+
+        public UnionFind(int size)
+        {
+            _parent = Enumerable.Range(0, size).ToArray();
+            _rank = new int[size];
+        }
+
+        public int Find(int index)
+        {
+            if (_parent[index] != index)
+            {
+                _parent[index] = Find(_parent[index]);
+            }
+
+            return _parent[index];
+        }
+
+        public void Union(int left, int right)
+        {
+            var leftRoot = Find(left);
+            var rightRoot = Find(right);
+            if (leftRoot == rightRoot)
+            {
+                return;
+            }
+
+            if (_rank[leftRoot] < _rank[rightRoot])
+            {
+                _parent[leftRoot] = rightRoot;
+                return;
+            }
+
+            if (_rank[leftRoot] > _rank[rightRoot])
+            {
+                _parent[rightRoot] = leftRoot;
+                return;
+            }
+
+            _parent[rightRoot] = leftRoot;
+            _rank[leftRoot]++;
+        }
+    }
+
+    internal sealed record class ArcFeatureRecord
     {
         public string SourceFile { get; init; } = string.Empty;
 
@@ -961,5 +1457,257 @@ public sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         public int PointCount { get; init; }
 
         public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
+
+        public string? CollapsedEntityId { get; init; }
+
+        public IReadOnlyList<string> SearchNames { get; init; } = Array.Empty<string>();
+
+        public IReadOnlyList<string> MemberNames { get; init; } = Array.Empty<string>();
+    }
+
+    internal sealed class ArcSourceReader : IArcSourceReader
+    {
+        public async Task<IReadOnlyList<ArcSourceDocument>> ReadAsync(IReadOnlyList<string> inputPaths)
+        {
+            var processedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var sourceDocuments = new List<ArcSourceDocument>(inputPaths.Count);
+
+            foreach (var inputPath in inputPaths)
+            {
+                var fileIdentity = ComputeFileIdentity(inputPath);
+                if (!processedFiles.Add(fileIdentity))
+                {
+                    continue;
+                }
+
+                var sourceFileName = Path.GetFileName(inputPath);
+                var document = XDocument.Parse(await ReadSanitizedKmlAsync(inputPath), LoadOptions.None);
+                var placemarks = document
+                    .Descendants()
+                    .Where(element => element.Name.LocalName.Equals("Placemark", StringComparison.Ordinal))
+                    .ToArray();
+                sourceDocuments.Add(new ArcSourceDocument(sourceFileName, placemarks));
+            }
+
+            return sourceDocuments;
+        }
+    }
+
+    internal sealed class ArcFeatureExtractor : IArcFeatureExtractor
+    {
+        public ArcExtractionStageResult Extract(
+            IReadOnlyList<ArcSourceDocument> sourceDocuments,
+            double collapseGridCellSizeFeet,
+            double pointSpacingFeet,
+            double minimumParkSquareFeet,
+            double minimumTrailMiles,
+            double minimumCombinedParkTrailMiles)
+        {
+            var directPointRecords = new List<NormalizedPlaceRecord>();
+            var collapsibleEntities = new List<CollapsibleEntity>();
+            var features = new List<ArcFeatureRecord>();
+            var parkPolygons = new List<ParkPolygonRecord>();
+            var trailLines = new List<TrailLineRecord>();
+            var rawEntityIndex = 0;
+
+            foreach (var sourceDocument in sourceDocuments)
+            {
+                for (var placemarkIndex = 0; placemarkIndex < sourceDocument.Placemarks.Count; placemarkIndex++)
+                {
+                    var placemark = sourceDocument.Placemarks[placemarkIndex];
+                    var metadata = ReadMetadata(placemark);
+                    var featureName = ResolveFeatureName(ReadTrimmedChildValue(placemark, "name"), metadata, sourceDocument.SourceFileName);
+
+                    var lineStrings = placemark.Descendants().Where(element => element.Name.LocalName.Equals("LineString", StringComparison.Ordinal)).ToArray();
+                    var polygons = placemark.Descendants().Where(element => element.Name.LocalName.Equals("Polygon", StringComparison.Ordinal)).ToArray();
+                    var points = placemark.Descendants().Where(element => element.Name.LocalName.Equals("Point", StringComparison.Ordinal)).ToArray();
+
+                    if (polygons.Length > 0)
+                    {
+                        var polygonPoints = polygons.Select(ParsePolygonRings).Where(rings => rings.Count > 0).ToArray();
+                        if (polygonPoints.Length > 0)
+                        {
+                            if (!ShouldKeepParkFeature(metadata, minimumParkSquareFeet))
+                            {
+                                continue;
+                            }
+
+                            parkPolygons.Add(new ParkPolygonRecord(sourceDocument.SourceFileName, featureName, metadata, polygonPoints));
+                            var outlinePoints = polygonPoints.SelectMany(rings => DensifyPolygonBoundaryPoints(rings, pointSpacingFeet)).ToArray();
+                            if (outlinePoints.Length > 0)
+                            {
+                                features.Add(BuildFeatureRecord(sourceDocument.SourceFileName, featureName, "park", "polygon", metadata, polygonPoints.Sum(rings => rings.Sum(ring => ring.Count))));
+                                var records = BuildPointRecords(outlinePoints, sourceDocument.SourceFileName, featureName, "park", "polygon-densified-edge", metadata, placemarkIndex);
+                                collapsibleEntities.Add(BuildCollapsibleEntity(
+                                    $"arc-entity-{rawEntityIndex++}",
+                                    sourceDocument.SourceFileName,
+                                    featureName,
+                                    "park",
+                                    "polygon-densified-edge",
+                                    metadata,
+                                    placemarkIndex,
+                                    records,
+                                    outlinePoints,
+                                    collapseGridCellSizeFeet,
+                                    tryGetParkSquareFeet: GetParkSquareFeet(metadata) is double parkSquareFeet,
+                                    parkSquareFeet: GetParkSquareFeet(metadata) ?? 0d,
+                                    tryGetTrailFeet: false,
+                                    trailFeet: 0d,
+                                    linearFeet: polygonPoints.Sum(ComputePolygonPerimeterFeet)));
+                            }
+                        }
+                    }
+
+                    if (points.Length > 0)
+                    {
+                        var pointCategory = DeterminePointCategory(sourceDocument.SourceFileName, featureName, metadata);
+                        if (pointCategory is not null)
+                        {
+                            var pointValues = points.SelectMany(ParsePointValues).ToArray();
+                            if (pointValues.Length > 0)
+                            {
+                                if (pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase)
+                                    && !ShouldKeepParkFeature(metadata, minimumParkSquareFeet))
+                                {
+                                    continue;
+                                }
+
+                                features.Add(BuildFeatureRecord(sourceDocument.SourceFileName, featureName, pointCategory, "point", metadata, pointValues.Length));
+                                var records = BuildPointRecords(pointValues, sourceDocument.SourceFileName, featureName, pointCategory, "point", metadata, placemarkIndex);
+                                if (pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase) || pointCategory.Equals("trail", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    collapsibleEntities.Add(BuildCollapsibleEntity(
+                                        $"arc-entity-{rawEntityIndex++}",
+                                        sourceDocument.SourceFileName,
+                                        featureName,
+                                        pointCategory,
+                                        "point",
+                                        metadata,
+                                        placemarkIndex,
+                                        records,
+                                        pointValues,
+                                        collapseGridCellSizeFeet,
+                                        tryGetParkSquareFeet: pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase) && GetParkSquareFeet(metadata) is double pointParkSquareFeet,
+                                        parkSquareFeet: GetParkSquareFeet(metadata) ?? 0d,
+                                        tryGetTrailFeet: false,
+                                        trailFeet: 0d,
+                                        linearFeet: 0d));
+                                }
+                                else
+                                {
+                                    directPointRecords.AddRange(records);
+                                }
+                            }
+                        }
+                    }
+
+                    if (lineStrings.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    var category = DetermineLineCategory(sourceDocument.SourceFileName, featureName, metadata);
+                    if (category is null)
+                    {
+                        continue;
+                    }
+
+                    var linePoints = lineStrings.SelectMany(ParseLineStringPoints).ToArray();
+                    if (linePoints.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    if (category.Equals("park", StringComparison.OrdinalIgnoreCase)
+                        && !ShouldKeepParkFeature(metadata, minimumParkSquareFeet))
+                    {
+                        continue;
+                    }
+
+                    if (category.Equals("trail", StringComparison.OrdinalIgnoreCase)
+                        && !ShouldKeepTrailFeature(metadata, linePoints, minimumTrailMiles))
+                    {
+                        continue;
+                    }
+
+                    features.Add(BuildFeatureRecord(sourceDocument.SourceFileName, featureName, category, "line", metadata, linePoints.Length));
+                    trailLines.Add(new TrailLineRecord(sourceDocument.SourceFileName, featureName, metadata, linePoints));
+                    var lineRecords = BuildPointRecords(linePoints, sourceDocument.SourceFileName, featureName, category, "line", metadata, placemarkIndex);
+                    collapsibleEntities.Add(BuildCollapsibleEntity(
+                        $"arc-entity-{rawEntityIndex++}",
+                        sourceDocument.SourceFileName,
+                        featureName,
+                        category,
+                        "line",
+                        metadata,
+                        placemarkIndex,
+                        lineRecords,
+                        DensifyPolylinePoints(linePoints, pointSpacingFeet),
+                        collapseGridCellSizeFeet,
+                        tryGetParkSquareFeet: category.Equals("park", StringComparison.OrdinalIgnoreCase) && GetParkSquareFeet(metadata) is double lineParkSquareFeet,
+                        parkSquareFeet: GetParkSquareFeet(metadata) ?? 0d,
+                        tryGetTrailFeet: category.Equals("trail", StringComparison.OrdinalIgnoreCase),
+                        trailFeet: category.Equals("trail", StringComparison.OrdinalIgnoreCase) ? ResolveTrailLengthFeet(metadata, linePoints) : 0d,
+                        linearFeet: ResolveTrailLengthFeet(metadata, linePoints)));
+                }
+            }
+
+            return new ArcExtractionStageResult(directPointRecords, collapsibleEntities, features, parkPolygons, trailLines);
+        }
+    }
+
+    internal sealed class ArcEntityCollapser : IArcEntityCollapser
+    {
+        public ArcCollapsedEntityResult Collapse(
+            IReadOnlyList<CollapsibleEntity> entities,
+            bool enableEntityCollapse,
+            double maximumCollapseGapMiles,
+            IReadOnlySet<string> collapseEligibleCategories,
+            double minimumParkSquareFeet,
+            double minimumTrailMiles,
+            double minimumCombinedParkTrailMiles) =>
+            CollapseEntities(
+                entities,
+                enableEntityCollapse,
+                maximumCollapseGapMiles,
+                collapseEligibleCategories,
+                minimumParkSquareFeet,
+                minimumTrailMiles,
+                minimumCombinedParkTrailMiles);
+    }
+
+    internal sealed class ArcOutputWriter : IArcOutputWriter
+    {
+        public async Task WriteAsync(
+            ExtractorArguments arguments,
+            IReadOnlyList<NormalizedPlaceRecord> allPoints,
+            IReadOnlyList<NormalizedPlaceRecord> parkPoints,
+            IReadOnlyList<NormalizedPlaceRecord> trailPoints,
+            IReadOnlyList<ArcFeatureRecord> features,
+            IReadOnlyList<ParkPolygonRecord> parkPolygons,
+            IReadOnlyList<TrailLineRecord> trailLines)
+        {
+            await WriteJsonLinesAsync(arguments.OutputPath, allPoints);
+
+            if (!string.IsNullOrWhiteSpace(arguments.ParkOutputPath))
+            {
+                await WriteJsonLinesAsync(arguments.ParkOutputPath, parkPoints);
+            }
+
+            if (!string.IsNullOrWhiteSpace(arguments.TrailOutputPath))
+            {
+                await WriteJsonLinesAsync(arguments.TrailOutputPath, trailPoints);
+            }
+
+            if (!string.IsNullOrWhiteSpace(arguments.FeatureOutputPath))
+            {
+                await WriteJsonLinesAsync(arguments.FeatureOutputPath, features);
+            }
+
+            if (!string.IsNullOrWhiteSpace(arguments.OriginalGeometryKmlOutputPath))
+            {
+                await WriteOriginalGeometryKmlAsync(arguments.OriginalGeometryKmlOutputPath, parkPolygons, trailLines);
+            }
+        }
     }
 }

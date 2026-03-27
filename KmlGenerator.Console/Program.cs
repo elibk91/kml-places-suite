@@ -51,8 +51,8 @@ public sealed class KmlConsoleRunner : IKmlConsoleApp
         }
         try
         {
-            var requestText = await File.ReadAllTextAsync(parsed.Value.InputPath);
-            var request = JsonSerializer.Deserialize<GenerateKmlRequest>(requestText, JsonOptions);
+            await using var requestStream = File.OpenRead(parsed.Value.InputPath);
+            var request = await JsonSerializer.DeserializeAsync<GenerateKmlRequest>(requestStream, JsonOptions);
             _logger.LogInformation("Loaded KML request from {InputPath}", parsed.Value.InputPath);
             if (request is null)
             {

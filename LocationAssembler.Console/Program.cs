@@ -61,56 +61,45 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         try
         {
             var categorySelection = await LoadCategorySelectionAsync(parsed.Value.CategoryConfigPath);
-            var records = new List<NormalizedPlaceRecord>();
+            var distinctLocations = new HashSet<LocationInput>(LocationInputComparer.Instance);
+            var inputRecordCount = 0;
 
             foreach (var inputPath in parsed.Value.InputPaths)
             {
                 var fileRecordCount = 0;
-                foreach (var line in await File.ReadAllLinesAsync(inputPath))
+                await foreach (var line in ReadNonEmptyLinesAsync(inputPath))
                 {
-                    if (string.IsNullOrWhiteSpace(line))
+                    var record = DeserializeRecord(line);
+                    var location = MapToLocationInput(record, categorySelection);
+                    if (location is not null)
                     {
-                        continue;
+                        distinctLocations.Add(location);
                     }
 
-                    var record = JsonSerializer.Deserialize<NormalizedPlaceRecord>(line, JsonOptions);
-                    if (record is null)
-                    {
-                        throw new InvalidOperationException("The jsonl input contains an invalid place record.");
-                    }
-
-                    records.Add(record);
                     fileRecordCount++;
+                    inputRecordCount++;
                 }
+
                 _logger.LogInformation("Read {FileRecordCount} normalized records from {InputPath}", fileRecordCount, inputPath);
             }
 
-            var locations = new List<LocationInput>(records.Count);
-            foreach (var record in records)
-            {
-                var location = MapToLocationInput(record, categorySelection);
-                if (location is not null)
-                {
-                    locations.Add(location);
-                }
-            }
-
-            var distinctLocations = locations
-                .Distinct(LocationInputComparer.Instance)
-                .ToArray();
-
-            _logger.LogInformation("Deduplicated {InputRecordCount} records into {UniqueLocationCount} unique locations", records.Count, distinctLocations.Length);
+            var locations = distinctLocations.ToArray();
+            _logger.LogInformation("Deduplicated {InputRecordCount} records into {UniqueLocationCount} unique locations", inputRecordCount, locations.Length);
 
             var request = new GenerateKmlRequest
             {
-                Locations = distinctLocations,
                 RadiusMiles = categorySelection.DefaultRadiusMiles,
                 CategoryRadiusMiles = categorySelection.CategoryRadiusMiles
             };
 
-            await File.WriteAllTextAsync(parsed.Value.OutputPath, JsonSerializer.Serialize(request, JsonOptions));
-            _logger.LogInformation("Assembled {RecordCount} records into {LocationCount} unique locations at {OutputPath}", records.Count, distinctLocations.Length, parsed.Value.OutputPath);
-            await output.WriteLineAsync($"Saved {distinctLocations.Length} unique points to {parsed.Value.OutputPath}");
+            await using var outputStream = File.Create(parsed.Value.OutputPath);
+            await using (var writer = new Utf8JsonWriter(outputStream, new JsonWriterOptions { Indented = true }))
+            {
+                WriteRequest(writer, locations, request);
+                await writer.FlushAsync();
+            }
+            _logger.LogInformation("Assembled {RecordCount} records into {LocationCount} unique locations at {OutputPath}", inputRecordCount, locations.Length, parsed.Value.OutputPath);
+            await output.WriteLineAsync($"Saved {locations.Length} unique points to {parsed.Value.OutputPath}");
             return 0;
         }
         catch (Exception exception)
@@ -133,6 +122,110 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                      ?? throw new InvalidOperationException("The category config file did not contain a valid JSON payload.");
 
         return CategorySelection.FromConfig(config);
+    }
+
+    private static void WriteRequest(Utf8JsonWriter writer, IReadOnlyList<LocationInput> locations, GenerateKmlRequest request)
+    {
+        writer.WriteStartObject();
+
+        writer.WritePropertyName("locations");
+        writer.WriteStartArray();
+        foreach (var location in locations)
+        {
+            JsonSerializer.Serialize(writer, location, JsonOptions);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteNumber("radiusMiles", request.RadiusMiles);
+
+        writer.WritePropertyName("categoryRadiusMiles");
+        JsonSerializer.Serialize(writer, request.CategoryRadiusMiles, JsonOptions);
+
+        writer.WriteEndObject();
+    }
+
+    private static async IAsyncEnumerable<string> ReadNonEmptyLinesAsync(string inputPath)
+    {
+        await using var stream = File.OpenRead(inputPath);
+        using var reader = new StreamReader(stream);
+
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                yield return line;
+            }
+        }
+    }
+
+    private static NormalizedPlaceRecord DeserializeRecord(string line)
+    {
+        try
+        {
+            var record = JsonSerializer.Deserialize<NormalizedPlaceRecord>(line, JsonOptions);
+            if (record is null)
+            {
+                throw new InvalidOperationException("The jsonl input contains an invalid place record.");
+            }
+
+            return record;
+        }
+        catch (JsonException)
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+
+            var name = root.GetProperty("name").GetString()
+                       ?? throw new InvalidOperationException("The jsonl input contains an invalid place record.");
+
+            var searchNames = TryReadStringArray(root, "searchNames");
+            if (searchNames.Count == 0)
+            {
+                searchNames = [name];
+            }
+
+            return new NormalizedPlaceRecord
+            {
+                Query = root.GetProperty("query").GetString()
+                        ?? throw new InvalidOperationException("The jsonl input contains an invalid place record."),
+                Category = root.GetProperty("category").GetString()
+                           ?? throw new InvalidOperationException("The jsonl input contains an invalid place record."),
+                PlaceId = root.GetProperty("placeId").GetString()
+                          ?? throw new InvalidOperationException("The jsonl input contains an invalid place record."),
+                Name = name,
+                FormattedAddress = root.GetProperty("formattedAddress").GetString()
+                                   ?? throw new InvalidOperationException("The jsonl input contains an invalid place record."),
+                Latitude = root.GetProperty("latitude").GetDouble(),
+                Longitude = root.GetProperty("longitude").GetDouble(),
+                Types = TryReadStringArray(root, "types"),
+                SourceQueryType = root.GetProperty("sourceQueryType").GetString()
+                                  ?? throw new InvalidOperationException("The jsonl input contains an invalid place record."),
+                SearchNames = searchNames,
+                CollapsedEntityId = root.TryGetProperty("collapsedEntityId", out var collapsedEntityId)
+                    ? collapsedEntityId.GetString()
+                    : null
+            };
+        }
+    }
+
+    private static IReadOnlyList<string> TryReadStringArray(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        var values = new List<string>();
+        foreach (var element in property.EnumerateArray())
+        {
+            var value = element.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                values.Add(value);
+            }
+        }
+
+        return values;
     }
 
     private static LocationInput? MapToLocationInput(NormalizedPlaceRecord record, CategorySelection selection)

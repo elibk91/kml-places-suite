@@ -19,9 +19,9 @@ public sealed class KmlTilerRunnerTests
             RadiusMiles = 1d,
             Locations =
             [
-                new LocationInput { Latitude = 33.95d, Longitude = -84.54d, Category = "gym" },
-                new LocationInput { Latitude = 33.949d, Longitude = -84.539d, Category = "grocery" },
-                new LocationInput { Latitude = 33.80d, Longitude = -84.20d, Category = "gym" }
+                new LocationInput { Latitude = 33.95d, Longitude = -84.54d, Category = "gym", Label = "gym-a" },
+                new LocationInput { Latitude = 33.949d, Longitude = -84.539d, Category = "grocery", Label = "grocery-a" },
+                new LocationInput { Latitude = 33.80d, Longitude = -84.20d, Category = "gym", Label = "gym-b" }
             ]
         };
 
