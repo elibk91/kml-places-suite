@@ -828,87 +828,27 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
     private static string? GetMetadataValue(IReadOnlyDictionary<string, string> metadata, string key) =>
         metadata.TryGetValue(key, out var value) ? value : null;
 
-    private static bool ShouldKeepParkFeature(IReadOnlyDictionary<string, string> metadata, double minimumParkSquareFeet)
+    private const double MaximumCorridorPolygonWidthFeet = 250d;
+    private const double MinimumCorridorPolygonAspectRatio = 8d;
+
+    private static bool ShouldKeepParkFeature(
+        double parkSquareFeet,
+        double polygonPerimeterFeet,
+        double minimumParkSquareFeet,
+        double minimumTrailMiles)
     {
-        if (TryGetSquareFeet(metadata, out var squareFeet))
+        if (parkSquareFeet >= minimumParkSquareFeet)
         {
-            return squareFeet >= minimumParkSquareFeet;
+            return true;
         }
 
-        return true;
+        return IsLinearCorridorPolygon(parkSquareFeet, polygonPerimeterFeet, minimumTrailMiles);
     }
 
-    private static bool ShouldKeepTrailFeature(IReadOnlyDictionary<string, string> metadata, IReadOnlyList<GeoPoint> linePoints, double minimumTrailMiles)
+    private static bool ShouldKeepTrailFeature(IReadOnlyList<GeoPoint> linePoints, double minimumTrailMiles)
     {
         var minimumTrailFeet = minimumTrailMiles * 5_280d;
-        if (TryGetLengthMiles(metadata, out var miles))
-        {
-            return miles >= minimumTrailMiles;
-        }
-
-        if (TryGetShapeLengthFeet(metadata, out var feet))
-        {
-            return feet >= minimumTrailFeet;
-        }
-
         return ComputePolylineLengthFeet(linePoints) >= minimumTrailFeet;
-    }
-
-    private static bool TryGetSquareFeet(IReadOnlyDictionary<string, string> metadata, out double squareFeet)
-    {
-        if (TryParseDouble(GetMetadataValue(metadata, "AllParks_Fields_Park_Size_SQFT"), out squareFeet))
-        {
-            return true;
-        }
-
-        if (TryParseDouble(GetMetadataValue(metadata, "Park_Size_SQFT"), out squareFeet))
-        {
-            return true;
-        }
-
-        if (TryGetAcres(metadata, out var acres))
-        {
-            squareFeet = acres * SquareFeetPerAcre;
-            return true;
-        }
-
-        squareFeet = 0;
-        return false;
-    }
-
-    private static double? GetParkSquareFeet(IReadOnlyDictionary<string, string> metadata) =>
-        TryGetSquareFeet(metadata, out var squareFeet) ? squareFeet : null;
-
-    private static bool TryGetAcres(IReadOnlyDictionary<string, string> metadata, out double acres)
-    {
-        if (TryParseDouble(GetMetadataValue(metadata, "AllParks_Fields_Park_Size_Acres"), out acres))
-        {
-            return true;
-        }
-
-        return TryParseDouble(GetMetadataValue(metadata, "Park_Size_Acres"), out acres);
-    }
-
-    private static bool TryGetLengthMiles(IReadOnlyDictionary<string, string> metadata, out double miles)
-    {
-        if (TryParseDouble(GetMetadataValue(metadata, "Length"), out miles))
-        {
-            return true;
-        }
-
-        miles = 0;
-        return false;
-    }
-
-    private static bool TryGetShapeLengthFeet(IReadOnlyDictionary<string, string> metadata, out double feet)
-    {
-        if (TryParseDouble(GetMetadataValue(metadata, "Shape__Length"), out feet))
-        {
-            return true;
-        }
-
-        feet = 0;
-        return false;
     }
 
     private static bool TryParseDouble(string? value, out double parsed)
@@ -944,20 +884,84 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         return totalFeet;
     }
 
-    private static double ResolveTrailLengthFeet(IReadOnlyDictionary<string, string> metadata, IReadOnlyList<GeoPoint> linePoints)
+    private static double ComputePolygonAreaSquareFeet(IReadOnlyList<IReadOnlyList<GeoPoint>> rings)
     {
-        if (TryGetLengthMiles(metadata, out var miles))
+        var totalArea = 0d;
+        foreach (var ring in rings)
         {
-            return miles * 5_280d;
+            totalArea += ComputeRingAreaSquareFeet(ring);
         }
 
-        if (TryGetShapeLengthFeet(metadata, out var feet))
-        {
-            return feet;
-        }
-
-        return ComputePolylineLengthFeet(linePoints);
+        return totalArea;
     }
+
+    private static double ComputeRingAreaSquareFeet(IReadOnlyList<GeoPoint> ring)
+    {
+        if (ring.Count < 3)
+        {
+            return 0d;
+        }
+
+        var referenceLatitudeRadians = DegreesToRadians(ring.Average(point => point.Latitude));
+        var projected = ring
+            .Select(point => ProjectToLocalFeet(point, referenceLatitudeRadians))
+            .ToArray();
+
+        var doubledArea = 0d;
+        for (var index = 0; index < projected.Length; index++)
+        {
+            var current = projected[index];
+            var next = projected[(index + 1) % projected.Length];
+            doubledArea += (current.X * next.Y) - (next.X * current.Y);
+        }
+
+        return Math.Abs(doubledArea) / 2d;
+    }
+
+    private static bool IsLinearCorridorPolygon(double polygonAreaSquareFeet, double polygonPerimeterFeet, double minimumTrailMiles)
+    {
+        if (polygonAreaSquareFeet <= 0d || polygonPerimeterFeet <= 0d)
+        {
+            return false;
+        }
+
+        var (estimatedLengthFeet, estimatedWidthFeet) = EstimateRectangleDimensions(polygonAreaSquareFeet, polygonPerimeterFeet);
+        if (estimatedLengthFeet <= 0d || estimatedWidthFeet <= 0d)
+        {
+            return false;
+        }
+
+        var minimumTrailFeet = minimumTrailMiles * 5_280d;
+        var aspectRatio = estimatedLengthFeet / estimatedWidthFeet;
+
+        return estimatedLengthFeet >= minimumTrailFeet
+            && estimatedWidthFeet <= MaximumCorridorPolygonWidthFeet
+            && aspectRatio >= MinimumCorridorPolygonAspectRatio;
+    }
+
+    private static (double LengthFeet, double WidthFeet) EstimateRectangleDimensions(double areaSquareFeet, double perimeterFeet)
+    {
+        var discriminant = Math.Max(0d, (perimeterFeet * perimeterFeet) - (16d * areaSquareFeet));
+        var root = Math.Sqrt(discriminant);
+        var first = (perimeterFeet + root) / 4d;
+        var second = (perimeterFeet - root) / 4d;
+
+        return first >= second ? (first, second) : (second, first);
+    }
+
+    private static ProjectedPoint ProjectToLocalFeet(GeoPoint point, double referenceLatitudeRadians)
+    {
+        const double earthRadiusFeet = 20_925_524.9d;
+        var latitudeRadians = DegreesToRadians(point.Latitude);
+        var longitudeRadians = DegreesToRadians(point.Longitude);
+
+        return new ProjectedPoint(
+            earthRadiusFeet * longitudeRadians * Math.Cos(referenceLatitudeRadians),
+            earthRadiusFeet * latitudeRadians);
+    }
+
+    private static double ResolveTrailLengthFeet(IReadOnlyList<GeoPoint> linePoints) =>
+        ComputePolylineLengthFeet(linePoints);
 
     private static ProjectedBounds ComputeBounds(IReadOnlyList<ProjectedPoint> points)
     {
@@ -1527,7 +1531,13 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                         var polygonPoints = polygons.Select(ParsePolygonRings).Where(rings => rings.Count > 0).ToArray();
                         if (polygonPoints.Length > 0)
                         {
-                            if (!ShouldKeepParkFeature(metadata, minimumParkSquareFeet))
+                            var polygonAreaSquareFeet = polygonPoints.Sum(ComputePolygonAreaSquareFeet);
+                            var polygonPerimeterFeet = polygonPoints.Sum(ComputePolygonPerimeterFeet);
+                            if (!ShouldKeepParkFeature(
+                                polygonAreaSquareFeet,
+                                polygonPerimeterFeet,
+                                minimumParkSquareFeet,
+                                minimumTrailMiles))
                             {
                                 continue;
                             }
@@ -1549,11 +1559,11 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                                     records,
                                     outlinePoints,
                                     collapseGridCellSizeFeet,
-                                    tryGetParkSquareFeet: GetParkSquareFeet(metadata) is double parkSquareFeet,
-                                    parkSquareFeet: GetParkSquareFeet(metadata) ?? 0d,
+                                    tryGetParkSquareFeet: true,
+                                    parkSquareFeet: polygonAreaSquareFeet,
                                     tryGetTrailFeet: false,
                                     trailFeet: 0d,
-                                    linearFeet: polygonPoints.Sum(ComputePolygonPerimeterFeet)));
+                                    linearFeet: polygonPerimeterFeet));
                             }
                         }
                     }
@@ -1567,7 +1577,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                             if (pointValues.Length > 0)
                             {
                                 if (pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase)
-                                    && !ShouldKeepParkFeature(metadata, minimumParkSquareFeet))
+                                    || pointCategory.Equals("trail", StringComparison.OrdinalIgnoreCase))
                                 {
                                     continue;
                                 }
@@ -1587,8 +1597,8 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                                         records,
                                         pointValues,
                                         collapseGridCellSizeFeet,
-                                        tryGetParkSquareFeet: pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase) && GetParkSquareFeet(metadata) is double pointParkSquareFeet,
-                                        parkSquareFeet: GetParkSquareFeet(metadata) ?? 0d,
+                                        tryGetParkSquareFeet: false,
+                                        parkSquareFeet: 0d,
                                         tryGetTrailFeet: false,
                                         trailFeet: 0d,
                                         linearFeet: 0d));
@@ -1619,13 +1629,8 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                     }
 
                     if (category.Equals("park", StringComparison.OrdinalIgnoreCase)
-                        && !ShouldKeepParkFeature(metadata, minimumParkSquareFeet))
-                    {
-                        continue;
-                    }
-
-                    if (category.Equals("trail", StringComparison.OrdinalIgnoreCase)
-                        && !ShouldKeepTrailFeature(metadata, linePoints, minimumTrailMiles))
+                        || (category.Equals("trail", StringComparison.OrdinalIgnoreCase)
+                            && !ShouldKeepTrailFeature(linePoints, minimumTrailMiles)))
                     {
                         continue;
                     }
@@ -1644,11 +1649,11 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                         lineRecords,
                         DensifyPolylinePoints(linePoints, pointSpacingFeet),
                         collapseGridCellSizeFeet,
-                        tryGetParkSquareFeet: category.Equals("park", StringComparison.OrdinalIgnoreCase) && GetParkSquareFeet(metadata) is double lineParkSquareFeet,
-                        parkSquareFeet: GetParkSquareFeet(metadata) ?? 0d,
+                        tryGetParkSquareFeet: false,
+                        parkSquareFeet: 0d,
                         tryGetTrailFeet: category.Equals("trail", StringComparison.OrdinalIgnoreCase),
-                        trailFeet: category.Equals("trail", StringComparison.OrdinalIgnoreCase) ? ResolveTrailLengthFeet(metadata, linePoints) : 0d,
-                        linearFeet: ResolveTrailLengthFeet(metadata, linePoints)));
+                        trailFeet: category.Equals("trail", StringComparison.OrdinalIgnoreCase) ? ResolveTrailLengthFeet(linePoints) : 0d,
+                        linearFeet: ResolveTrailLengthFeet(linePoints)));
                 }
             }
 

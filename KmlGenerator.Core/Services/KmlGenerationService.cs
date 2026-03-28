@@ -16,6 +16,7 @@ namespace KmlGenerator.Core.Services;
 public sealed class KmlGenerationService : IKmlGenerationService
 {
     private const double DegreesToRadians = Math.PI / 180d;
+    private const int EmittedValidPointStride = 50;
     private readonly ILogger<KmlGenerationService> _logger;
 
     public KmlGenerationService(ILogger<KmlGenerationService>? logger = null)
@@ -35,19 +36,19 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
         var validPoints = ScanValidPoints(bounds, request.Step, categoryIndexes);
         var shapeRegions = BuildShapeRegions(bounds, request.Step, validPoints, categoryIndexes);
-        var boundaryPointCount = shapeRegions.Sum(region => region.BoundaryPoints.Count);
+        var emittedPointCount = shapeRegions.Sum(region => region.EmittedPoints.Count);
         var kml = BuildKml(shapeRegions, bounds, request.Step);
         _logger.LogInformation(
-            "Generated KML with {CategoryCount} categories, {ValidPointCount} valid points, {ShapeCount} shapes, and {BoundaryPointCount} boundary points",
+            "Generated KML with {CategoryCount} categories, {ValidPointCount} valid points, {ShapeCount} shapes, and {EmittedPointCount} emitted overlap points",
             categoryIndexes.Count,
             validPoints.Count,
             shapeRegions.Count,
-            boundaryPointCount);
+            emittedPointCount);
 
         return new GenerateKmlResult
         {
             Kml = kml,
-            BoundaryPointCount = boundaryPointCount,
+            BoundaryPointCount = emittedPointCount,
             ValidPointCount = validPoints.Count,
             Bounds = bounds
         };
@@ -298,12 +299,14 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
         foreach (var component in components)
         {
-            var componentSet = component.ToHashSet();
-            var boundaryPoints = ExtractBoundaryPoints(componentSet);
-            var loops = BuildBoundaryLoops(bounds, step, componentSet);
-            var topMatches = CollectTopRelevantLocations(bounds, step, boundaryPoints, categoryIndexes);
+            var emittedPoints = component
+                .OrderByDescending(point => point.LatitudeIndex)
+                .ThenBy(point => point.LongitudeIndex)
+                .Where((_, index) => index % EmittedValidPointStride == 0)
+                .ToArray();
+            var topMatches = CollectTopRelevantLocations(bounds, step, emittedPoints, categoryIndexes);
 
-            shapeRegions.Add(new ShapeRegion(loops, boundaryPoints, topMatches));
+            shapeRegions.Add(new ShapeRegion(emittedPoints, topMatches));
         }
 
         _logger.LogDebug("Built {ShapeRegionCount} shape regions from {ComponentCount} connected components", shapeRegions.Count, components.Count);
@@ -388,7 +391,7 @@ public sealed class KmlGenerationService : IKmlGenerationService
     private IReadOnlyDictionary<string, IReadOnlyList<ScoredLocation>> CollectTopRelevantLocations(
         BoundingBox bounds,
         double step,
-        IReadOnlyCollection<GridPoint> boundaryPoints,
+        IReadOnlyCollection<GridPoint> samplePoints,
         IReadOnlyList<CategoryIndex> categoryIndexes)
     {
         var relevantByCategory = categoryIndexes.ToDictionary(
@@ -396,10 +399,10 @@ public sealed class KmlGenerationService : IKmlGenerationService
             _ => new Dictionary<LocationInput, int>(LocationInputComparer.Instance),
             StringComparer.OrdinalIgnoreCase);
 
-        foreach (var boundaryPoint in boundaryPoints)
+        foreach (var samplePoint in samplePoints)
         {
-            var longitude = bounds.MinLongitude + (boundaryPoint.LongitudeIndex * step);
-            var latitude = bounds.MinLatitude + (boundaryPoint.LatitudeIndex * step);
+            var longitude = bounds.MinLongitude + (samplePoint.LongitudeIndex * step);
+            var latitude = bounds.MinLatitude + (samplePoint.LatitudeIndex * step);
 
             foreach (var categoryIndex in categoryIndexes)
             {
@@ -478,220 +481,13 @@ public sealed class KmlGenerationService : IKmlGenerationService
         return nearestLocations;
     }
 
-    private List<List<GeoCoordinate>> BuildBoundaryLoops(BoundingBox bounds, double step, HashSet<GridPoint> validPoints)
-    {
-        var adjacency = new Dictionary<VertexKey, List<int>>();
-        var edges = new List<BoundaryEdge>();
-
-        foreach (var point in validPoints)
-        {
-            var left = (point.LongitudeIndex * 2) - 1;
-            var right = (point.LongitudeIndex * 2) + 1;
-            var bottom = (point.LatitudeIndex * 2) - 1;
-            var top = (point.LatitudeIndex * 2) + 1;
-
-            if (!validPoints.Contains(new GridPoint(point.LatitudeIndex + 1, point.LongitudeIndex)))
-            {
-                AddBoundaryEdge(adjacency, edges, new VertexKey(top, left), new VertexKey(top, right));
-            }
-
-            if (!validPoints.Contains(new GridPoint(point.LatitudeIndex - 1, point.LongitudeIndex)))
-            {
-                AddBoundaryEdge(adjacency, edges, new VertexKey(bottom, right), new VertexKey(bottom, left));
-            }
-
-            if (!validPoints.Contains(new GridPoint(point.LatitudeIndex, point.LongitudeIndex + 1)))
-            {
-                AddBoundaryEdge(adjacency, edges, new VertexKey(top, right), new VertexKey(bottom, right));
-            }
-
-            if (!validPoints.Contains(new GridPoint(point.LatitudeIndex, point.LongitudeIndex - 1)))
-            {
-                AddBoundaryEdge(adjacency, edges, new VertexKey(bottom, left), new VertexKey(top, left));
-            }
-        }
-
-        var usedEdges = new bool[edges.Count];
-        var loops = new List<List<GeoCoordinate>>();
-
-        for (var edgeIndex = 0; edgeIndex < edges.Count; edgeIndex++)
-        {
-            if (usedEdges[edgeIndex])
-            {
-                continue;
-            }
-
-            var firstEdge = edges[edgeIndex];
-            var loop = new List<VertexKey> { firstEdge.Start };
-            usedEdges[edgeIndex] = true;
-            var previous = firstEdge.Start;
-            var current = firstEdge.End;
-            loop.Add(current);
-
-            while (!current.Equals(firstEdge.Start))
-            {
-                if (!adjacency.TryGetValue(current, out var candidates))
-                {
-                    break;
-                }
-
-                var nextEdgeIndex = SelectNextEdge(previous, current, candidates, edges, usedEdges);
-                if (nextEdgeIndex < 0)
-                {
-                    break;
-                }
-
-                usedEdges[nextEdgeIndex] = true;
-                previous = current;
-                current = edges[nextEdgeIndex].End;
-                loop.Add(current);
-            }
-
-            if (loop.Count >= 4 && loop[^1].Equals(loop[0]))
-            {
-                loops.Add(SimplifyLoop(
-                    loop
-                        .Select(vertex => ToGeoCoordinate(vertex, bounds, step))
-                        .ToArray()));
-            }
-        }
-
-        loops = loops
-            .Where(static loop => loop.Count >= 4)
-            .OrderByDescending(ComputePolygonArea)
-            .ToList();
-
-        _logger.LogDebug("Built {LoopCount} boundary loops", loops.Count);
-        return loops;
-    }
-
-    private static List<GeoCoordinate> SimplifyLoop(IReadOnlyList<GeoCoordinate> loop)
-    {
-        if (loop.Count < 4)
-        {
-            return loop.ToList();
-        }
-
-        var simplified = new List<GeoCoordinate> { loop[0] };
-
-        for (var index = 1; index < loop.Count - 1; index++)
-        {
-            var previous = simplified[^1];
-            var current = loop[index];
-            var next = loop[index + 1];
-
-            if (IsCollinear(previous, current, next))
-            {
-                continue;
-            }
-
-            simplified.Add(current);
-        }
-
-        simplified.Add(simplified[0]);
-        return simplified;
-    }
-
-    private static bool IsCollinear(GeoCoordinate previous, GeoCoordinate current, GeoCoordinate next)
-    {
-        const double epsilon = 1e-12;
-        var crossProduct =
-            ((current.Longitude - previous.Longitude) * (next.Latitude - current.Latitude)) -
-            ((current.Latitude - previous.Latitude) * (next.Longitude - current.Longitude));
-
-        return Math.Abs(crossProduct) <= epsilon;
-    }
-
-    private static int SelectNextEdge(
-        VertexKey previous,
-        VertexKey current,
-        IReadOnlyList<int> candidateIndexes,
-        IReadOnlyList<BoundaryEdge> edges,
-        IReadOnlyList<bool> usedEdges)
-    {
-        var incomingDirection = GetDirection(previous, current);
-        var bestEdgeIndex = -1;
-        var bestTurn = int.MaxValue;
-
-        foreach (var candidateIndex in candidateIndexes)
-        {
-            if (usedEdges[candidateIndex])
-            {
-                continue;
-            }
-
-            var candidateDirection = GetDirection(current, edges[candidateIndex].End);
-            var turn = ((candidateDirection - incomingDirection) + 4) % 4;
-            if (turn == 2)
-            {
-                continue;
-            }
-
-            if (turn < bestTurn)
-            {
-                bestTurn = turn;
-                bestEdgeIndex = candidateIndex;
-            }
-        }
-
-        return bestEdgeIndex;
-    }
-
-    private static int GetDirection(VertexKey start, VertexKey end)
-    {
-        if (end.LatitudeUnit == start.LatitudeUnit)
-        {
-            return end.LongitudeUnit > start.LongitudeUnit ? 0 : 2;
-        }
-
-        return end.LatitudeUnit < start.LatitudeUnit ? 1 : 3;
-    }
-
-    private static GeoCoordinate ToGeoCoordinate(VertexKey vertex, BoundingBox bounds, double step) =>
-        new(
-            bounds.MinLatitude + ((vertex.LatitudeUnit * step) / 2d),
-            bounds.MinLongitude + ((vertex.LongitudeUnit * step) / 2d));
-
-    private static double ComputePolygonArea(IReadOnlyList<GeoCoordinate> loop)
-    {
-        double area = 0d;
-
-        for (var index = 0; index < loop.Count - 1; index++)
-        {
-            var current = loop[index];
-            var next = loop[index + 1];
-            area += (current.Longitude * next.Latitude) - (next.Longitude * current.Latitude);
-        }
-
-        return Math.Abs(area) / 2d;
-    }
-
-    private static void AddBoundaryEdge(
-        IDictionary<VertexKey, List<int>> adjacency,
-        IList<BoundaryEdge> edges,
-        VertexKey start,
-        VertexKey end)
-    {
-        var edgeIndex = edges.Count;
-        edges.Add(new BoundaryEdge(start, end));
-
-        if (!adjacency.TryGetValue(start, out var outgoing))
-        {
-            outgoing = new List<int>();
-            adjacency[start] = outgoing;
-        }
-
-        outgoing.Add(edgeIndex);
-    }
-
     private string BuildKml(IReadOnlyList<ShapeRegion> shapeRegions, BoundingBox bounds, double step)
     {
         var builder = new StringBuilder();
         builder.AppendLine("""<?xml version="1.0" encoding="UTF-8"?>""");
         builder.AppendLine("""<kml xmlns="http://www.opengis.net/kml/2.2">""");
         builder.AppendLine("<Document>");
-        builder.AppendLine("""  <Style id="boundary-point"><IconStyle><scale>0.45</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><color>ff0000ff</color></IconStyle></Style>""");
-        builder.AppendLine("""  <Style id="boundary-polygon"><LineStyle><color>ff0000ff</color><width>2</width></LineStyle><PolyStyle><color>330000ff</color></PolyStyle></Style>""");
+        builder.AppendLine("""  <Style id="overlap-point"><IconStyle><scale>0.45</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><color>ff0000ff</color></IconStyle></Style>""");
 
         var categories = shapeRegions
             .SelectMany(static region => region.TopMatchesByCategory.Keys)
@@ -719,68 +515,20 @@ public sealed class KmlGenerationService : IKmlGenerationService
             builder.AppendLine("</name>");
 
             builder.AppendLine("    <Folder>");
-            builder.AppendLine("      <name>Overlap Boundary</name>");
+            builder.AppendLine("      <name>Overlap Points</name>");
 
-            if (shapeRegion.BoundaryLoops.Count > 0)
+            foreach (var emittedPoint in shapeRegion.EmittedPoints)
             {
                 builder.AppendLine("      <Placemark>");
-                builder.AppendLine("        <styleUrl>#boundary-polygon</styleUrl>");
-                builder.AppendLine("        <Polygon>");
-                builder.AppendLine("          <outerBoundaryIs>");
-                builder.AppendLine("            <LinearRing>");
-                builder.AppendLine("              <coordinates>");
-
-                foreach (var coordinate in shapeRegion.BoundaryLoops[0])
-                {
-                    builder.Append("                ");
-                    builder.Append(coordinate.Longitude.ToString("G17", CultureInfo.InvariantCulture));
-                    builder.Append(',');
-                    builder.Append(coordinate.Latitude.ToString("G17", CultureInfo.InvariantCulture));
-                    builder.AppendLine(",0");
-                }
-
-                builder.AppendLine("              </coordinates>");
-                builder.AppendLine("            </LinearRing>");
-                builder.AppendLine("          </outerBoundaryIs>");
-
-                for (var holeIndex = 1; holeIndex < shapeRegion.BoundaryLoops.Count; holeIndex++)
-                {
-                    builder.AppendLine("          <innerBoundaryIs>");
-                    builder.AppendLine("            <LinearRing>");
-                    builder.AppendLine("              <coordinates>");
-
-                    foreach (var coordinate in shapeRegion.BoundaryLoops[holeIndex])
-                    {
-                        builder.Append("                ");
-                        builder.Append(coordinate.Longitude.ToString("G17", CultureInfo.InvariantCulture));
-                        builder.Append(',');
-                        builder.Append(coordinate.Latitude.ToString("G17", CultureInfo.InvariantCulture));
-                        builder.AppendLine(",0");
-                    }
-
-                    builder.AppendLine("              </coordinates>");
-                    builder.AppendLine("            </LinearRing>");
-                    builder.AppendLine("          </innerBoundaryIs>");
-                }
-
-                builder.AppendLine("        </Polygon>");
+                builder.AppendLine("        <styleUrl>#overlap-point</styleUrl>");
+                builder.AppendLine("        <Point>");
+                builder.Append("          <coordinates>");
+                builder.Append((bounds.MinLongitude + (emittedPoint.LongitudeIndex * step)).ToString("G17", CultureInfo.InvariantCulture));
+                builder.Append(',');
+                builder.Append((bounds.MinLatitude + (emittedPoint.LatitudeIndex * step)).ToString("G17", CultureInfo.InvariantCulture));
+                builder.AppendLine(",0</coordinates>");
+                builder.AppendLine("        </Point>");
                 builder.AppendLine("      </Placemark>");
-            }
-            else
-            {
-                foreach (var boundaryPoint in shapeRegion.BoundaryPoints)
-                {
-                    builder.AppendLine("      <Placemark>");
-                    builder.AppendLine("        <styleUrl>#boundary-point</styleUrl>");
-                    builder.AppendLine("        <Point>");
-                    builder.Append("          <coordinates>");
-                    builder.Append((bounds.MinLongitude + (boundaryPoint.LongitudeIndex * step)).ToString("G17", CultureInfo.InvariantCulture));
-                    builder.Append(',');
-                    builder.Append((bounds.MinLatitude + (boundaryPoint.LatitudeIndex * step)).ToString("G17", CultureInfo.InvariantCulture));
-                    builder.AppendLine(",0</coordinates>");
-                    builder.AppendLine("        </Point>");
-                    builder.AppendLine("      </Placemark>");
-                }
             }
 
             builder.AppendLine("    </Folder>");
@@ -852,12 +600,6 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
     private readonly record struct BinKey(int LatitudeBin, int LongitudeBin);
 
-    private readonly record struct GeoCoordinate(double Latitude, double Longitude);
-
-    private readonly record struct VertexKey(int LatitudeUnit, int LongitudeUnit);
-
-    private readonly record struct BoundaryEdge(VertexKey Start, VertexKey End);
-
     private sealed record CategoryIndex(
         string Category,
         IReadOnlyDictionary<BinKey, LocationInput[]> Bins,
@@ -866,8 +608,7 @@ public sealed class KmlGenerationService : IKmlGenerationService
         double RadiusMiles);
 
     private sealed record ShapeRegion(
-        IReadOnlyList<List<GeoCoordinate>> BoundaryLoops,
-        IReadOnlyList<GridPoint> BoundaryPoints,
+        IReadOnlyList<GridPoint> EmittedPoints,
         IReadOnlyDictionary<string, IReadOnlyList<ScoredLocation>> TopMatchesByCategory);
 
     private sealed record ScoredLocation(LocationInput Location, int Count);

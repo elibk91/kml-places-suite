@@ -76,8 +76,8 @@ public sealed class KmlConsoleRunner : IKmlConsoleApp
             {
                 var result = _service.Generate(request);
                 await File.WriteAllTextAsync(parsed.Value.OutputPath, result.Kml);
-                _logger.LogInformation("Wrote KML output to {OutputPath} with {BoundaryPointCount} boundary points", parsed.Value.OutputPath, result.BoundaryPointCount);
-                await output.WriteLineAsync($"Saved {result.BoundaryPointCount} outline dots to {parsed.Value.OutputPath}");
+                _logger.LogInformation("Wrote KML output to {OutputPath} with {BoundaryPointCount} emitted overlap points", parsed.Value.OutputPath, result.BoundaryPointCount);
+                await output.WriteLineAsync($"Saved {result.BoundaryPointCount} overlap points to {parsed.Value.OutputPath}");
             }
 
             return 0;

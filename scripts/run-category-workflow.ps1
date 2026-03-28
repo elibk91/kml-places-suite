@@ -53,14 +53,15 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDirectory
 . (Join-Path $scriptDirectory "Common.ps1")
 $arcSourceRoot = Join-Path $scriptDirectory "in\arc-sources"
+$arcParksTrailsRoot = Join-Path $arcSourceRoot "parks-trails"
+$arcMartaRoot = Join-Path $arcSourceRoot "marta"
 $categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
 
 if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
     # Keep durable source KML/KMZ in-repo so active workflows do not depend on developer Downloads folders.
-    $ArcInputPaths = @(Get-ChildItem -Path $arcSourceRoot -File |
+    $ArcInputPaths = @(Get-ChildItem -Path $arcParksTrailsRoot -File -Recurse |
         Where-Object {
             $_.Extension -in '.kml', '.kmz' `
-                -and $_.Name -notmatch '^MARTA_' `
                 -and $_.Name -notmatch '^park-outlines\.'
         } |
         Sort-Object Name |
@@ -69,7 +70,7 @@ if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
 
 if (-not $ArcMartaInputPaths -or $ArcMartaInputPaths.Count -eq 0) {
     $ArcMartaInputPaths = @(
-        (Join-Path $arcSourceRoot "MARTA_Rail_Stations_-3250756205123355367.kmz")
+        (Join-Path $arcMartaRoot "atlanta_regional_commission_marta_rail_stations.kmz")
     )
 }
 
@@ -117,7 +118,7 @@ if (-not $ArcMartaOutputPath) {
 }
 
 if (-not $FinalRequestOutputPath) {
-    $FinalRequestOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-atlanta-category-request.arc.json"
+    $FinalRequestOutputPath = Join-Path $RunOutputDirectory "atlanta-category-request.arc.json"
 }
 
 if (-not $KmlOutputPath) {

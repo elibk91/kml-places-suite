@@ -4,7 +4,6 @@
 - `legacy/build-master-lists.ps1`: legacy Google master-list generation only. It is not part of the active trace-proof surface.
 - `run-category-workflow.ps1`: main category assembly flow that reuses existing master lists, regenerates ARC artifacts from source inputs, and generates the whole-area overlap KML.
 - `extract-park-outline.ps1`: runs `ArcGeometryExtractor.Console` to produce the same park-outline KML shape data as the real ARC workflow, then filters that extractor output down to one named park for inspection.
-- `clean-arc-sources.ps1`: audits raw ARC KML/KMZ inputs, preserves changed originals under `scripts/in/arc-sources/legacy/<RunId>/`, and rewrites cleaned top-level source files in place.
 - `diagnose-coordinate-coverage.ps1`: reports nearest points per category for a coordinate and tells you which categories are missing inside the target radius.
 - `Common.ps1` owns shared tracing/report helpers. Active scripts are responsible for initializing and finalizing trace artifacts under `scripts/out/runs/<workflow>/<RunId>/trace/`.
 - Active scripts should build `KmlSuite.slnx` once and then run projects with `--no-build`.

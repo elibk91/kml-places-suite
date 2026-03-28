@@ -12,7 +12,7 @@
     "marta": 0.75,
     "park": 0.75
   },
-  "minimumParkSquareFeet": 500000.0,
+  "minimumParkSquareFeet": 700000.0,
   "minimumTrailMiles": 0.5,
   "minimumCombinedParkTrailMiles": 1.65,
   "pointSpacingMiles": 0.5,

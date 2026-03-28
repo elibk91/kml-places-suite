@@ -27,6 +27,7 @@ $repoRoot = Split-Path -Parent $scriptDirectory
 . (Join-Path $scriptDirectory "Common.ps1")
 $extractorProjectPath = Join-Path $repoRoot "ArcGeometryExtractor.Console\ArcGeometryExtractor.Console.csproj"
 $arcSourceRoot = Join-Path $scriptDirectory "in\arc-sources"
+$arcParksTrailsRoot = Join-Path $arcSourceRoot "parks-trails"
 $categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
 
 function Convert-LatLonToFeet {
@@ -80,10 +81,9 @@ function Select-DiagnosticPoints {
 
 if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
     # The diagnostic should default to the same checked-in ARC source set the active workflow uses.
-    $ArcInputPaths = @(Get-ChildItem -Path $arcSourceRoot -File |
+    $ArcInputPaths = @(Get-ChildItem -Path $arcParksTrailsRoot -File -Recurse |
         Where-Object {
             $_.Extension -in '.kml', '.kmz' `
-                -and $_.Name -notmatch '^MARTA_' `
                 -and $_.Name -notmatch '^park-outlines\.'
         } |
         Sort-Object Name |
