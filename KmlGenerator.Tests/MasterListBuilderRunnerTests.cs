@@ -37,7 +37,7 @@ public sealed class MasterListBuilderRunnerTests
                   "name": "gyms",
                   "mode": "tiled",
                   "searches": [
-                    { "query": "Planet Fitness", "category": "gym" }
+                    { "query": "Planet Fitness", "category": "gym", "sourceQueryType": "base" }
                   ]
                 }
               ]
@@ -68,6 +68,7 @@ public sealed class MasterListBuilderRunnerTests
         Assert.Equal(0, exitCode);
         Assert.True(File.Exists(Path.Combine(outputDirectory, "gyms-master.jsonl")));
         Assert.True(File.Exists(Path.Combine(outputDirectory, "master-lists-summary.json")));
+        Assert.True(File.Exists(Path.Combine(outputDirectory, "gyms-audit.json")));
 
         var gymLines = await File.ReadAllLinesAsync(Path.Combine(outputDirectory, "gyms-master.jsonl"));
         Assert.Single(gymLines);
@@ -106,7 +107,7 @@ public sealed class MasterListBuilderRunnerTests
                   "name": "marta",
                   "mode": "tiled",
                   "searches": [
-                    { "query": "MARTA Midtown Station", "category": "marta" }
+                    { "query": "MARTA Midtown Station", "category": "marta", "sourceQueryType": "base" }
                   ]
                 }
               ]
@@ -155,7 +156,7 @@ public sealed class MasterListBuilderRunnerTests
                   "name": "gyms",
                   "mode": "tiled",
                   "searches": [
-                    { "query": "LA Fitness", "category": "gym" }
+                    { "query": "LA Fitness", "category": "gym", "sourceQueryType": "base" }
                   ]
                 }
               ]
@@ -196,6 +197,88 @@ public sealed class MasterListBuilderRunnerTests
         Assert.Contains("LA Fitness", lines[0]);
         Assert.DoesNotContain("BACH Fitness", lines[0], StringComparison.Ordinal);
 
+        var audit = await File.ReadAllTextAsync(Path.Combine(outputDirectory, "gyms-audit.json"));
+        Assert.Contains("\"reason\":\"missing_required_brand_tokens\"", audit, StringComparison.Ordinal);
+
+        Environment.SetEnvironmentVariable(variableName, null);
+    }
+
+    [Fact]
+    public async Task RunAsync_RejectsLooseSubstringBrandMatches()
+    {
+        const string variableName = "MASTER_LIST_BUILDER_GYM_SUBSTRING_TEST_KEY";
+        Environment.SetEnvironmentVariable(variableName, "test-key");
+
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(tempDirectory.FullName, "master-list-config.json");
+        var outputDirectory = Path.Combine(tempDirectory.FullName, "master-lists");
+
+        await File.WriteAllTextAsync(
+            configPath,
+            $$"""
+            {
+              "bounds": {
+                "north": 33.95,
+                "south": 33.69,
+                "east": -84.09,
+                "west": -84.55
+              },
+              "secrets": {
+                "provider": "Local",
+                "environmentVariableName": "{{variableName}}"
+              },
+              "tileLatitudeStep": 0.05,
+              "tileLongitudeStep": 0.05,
+              "groups": [
+                {
+                  "name": "gyms",
+                  "mode": "tiled",
+                  "searches": [
+                    { "query": "LA Fitness", "category": "gym", "sourceQueryType": "base" }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var handler = new StubHttpMessageHandler(_ => JsonResponse(
+            """
+            {
+              "places": [
+                {
+                  "id": "wrong-1",
+                  "displayName": { "text": "PoleLaTeaz: Pole Dance, Aerial Hoop, Aerial Silks Fitness Studio" },
+                  "formattedAddress": "2700 Northeast Expy C-300, Atlanta, GA 30345, USA",
+                  "location": { "latitude": 33.8578, "longitude": -84.2965 },
+                  "types": [ "fitness_center", "gym" ]
+                },
+                {
+                  "id": "right-1",
+                  "displayName": { "text": "LA Fitness | Peachtree Rd NE Ste 300" },
+                  "formattedAddress": "3535 Peachtree Rd NE Ste 300, Atlanta, GA 30326, USA",
+                  "location": { "latitude": 33.8510, "longitude": -84.3620 },
+                  "types": [ "gym" ]
+                }
+              ]
+            }
+            """));
+
+        var exitCode = await MasterListBuilderProgram.RunAsync(
+            ["--config", configPath, "--output-dir", outputDirectory],
+            TextWriter.Null,
+            TextWriter.Null,
+            new HttpClient(handler));
+
+        Assert.Equal(0, exitCode);
+        var lines = await File.ReadAllLinesAsync(Path.Combine(outputDirectory, "gyms-master.jsonl"));
+        Assert.Single(lines);
+        Assert.Contains("LA Fitness", lines[0]);
+        Assert.DoesNotContain("PoleLaTeaz", lines[0], StringComparison.Ordinal);
+
+        var audit = await File.ReadAllTextAsync(Path.Combine(outputDirectory, "gyms-audit.json"));
+        Assert.Contains("PoleLaTeaz", audit, StringComparison.Ordinal);
+        Assert.Contains("\"reason\":\"missing_required_brand_tokens\"", audit, StringComparison.Ordinal);
+
         Environment.SetEnvironmentVariable(variableName, null);
     }
 
@@ -230,7 +313,7 @@ public sealed class MasterListBuilderRunnerTests
                   "name": "groceries",
                   "mode": "tiled",
                   "searches": [
-                    { "query": "Publix", "category": "grocery" }
+                    { "query": "Publix", "category": "grocery", "sourceQueryType": "base" }
                   ]
                 }
               ]
@@ -271,6 +354,87 @@ public sealed class MasterListBuilderRunnerTests
         Assert.Contains("Publix", lines[0]);
         Assert.DoesNotContain("Buckhead Butcher Shop", lines[0], StringComparison.Ordinal);
 
+        var audit = await File.ReadAllTextAsync(Path.Combine(outputDirectory, "groceries-audit.json"));
+        Assert.Contains("\"reason\":\"missing_required_brand_tokens\"", audit, StringComparison.Ordinal);
+
+        Environment.SetEnvironmentVariable(variableName, null);
+    }
+
+    [Fact]
+    public async Task RunAsync_RejectsYmcaResultsWithoutGymTypes()
+    {
+        const string variableName = "MASTER_LIST_BUILDER_YMCA_TYPE_TEST_KEY";
+        Environment.SetEnvironmentVariable(variableName, "test-key");
+
+        var tempDirectory = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(tempDirectory.FullName, "master-list-config.json");
+        var outputDirectory = Path.Combine(tempDirectory.FullName, "master-lists");
+
+        await File.WriteAllTextAsync(
+            configPath,
+            $$"""
+            {
+              "bounds": {
+                "north": 33.95,
+                "south": 33.69,
+                "east": -84.09,
+                "west": -84.55
+              },
+              "secrets": {
+                "provider": "Local",
+                "environmentVariableName": "{{variableName}}"
+              },
+              "tileLatitudeStep": 0.05,
+              "tileLongitudeStep": 0.05,
+              "groups": [
+                {
+                  "name": "gyms",
+                  "mode": "tiled",
+                  "searches": [
+                    { "query": "YMCA", "category": "gym", "sourceQueryType": "base" }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var handler = new StubHttpMessageHandler(_ => JsonResponse(
+            """
+            {
+              "places": [
+                {
+                  "id": "wrong-1",
+                  "displayName": { "text": "Dean Rusk YMCA Head Start Academy" },
+                  "formattedAddress": "433 Peeples St SW, Atlanta, GA 30310, USA",
+                  "location": { "latitude": 33.7429, "longitude": -84.4215 },
+                  "types": [ "school", "educational_institution" ]
+                },
+                {
+                  "id": "right-1",
+                  "displayName": { "text": "Arthur M. Blank Family Youth YMCA" },
+                  "formattedAddress": "555 Luckie St NW, Atlanta, GA 30313, USA",
+                  "location": { "latitude": 33.7703, "longitude": -84.3954 },
+                  "types": [ "gym", "health" ]
+                }
+              ]
+            }
+            """));
+
+        var exitCode = await MasterListBuilderProgram.RunAsync(
+            ["--config", configPath, "--output-dir", outputDirectory],
+            TextWriter.Null,
+            TextWriter.Null,
+            new HttpClient(handler));
+
+        Assert.Equal(0, exitCode);
+        var lines = await File.ReadAllLinesAsync(Path.Combine(outputDirectory, "gyms-master.jsonl"));
+        Assert.Single(lines);
+        Assert.Contains("Arthur M. Blank Family Youth YMCA", lines[0]);
+        Assert.DoesNotContain("Dean Rusk YMCA Head Start Academy", lines[0], StringComparison.Ordinal);
+
+        var audit = await File.ReadAllTextAsync(Path.Combine(outputDirectory, "gyms-audit.json"));
+        Assert.Contains("\"reason\":\"type_mismatch\"", audit, StringComparison.Ordinal);
+
         Environment.SetEnvironmentVariable(variableName, null);
     }
 
@@ -305,7 +469,7 @@ public sealed class MasterListBuilderRunnerTests
                   "name": "gyms",
                   "mode": "direct",
                   "searches": [
-                    { "query": "Planet Fitness", "category": "gym" }
+                    { "query": "Planet Fitness", "category": "gym", "sourceQueryType": "base" }
                   ]
                 }
               ]

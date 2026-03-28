@@ -1,0 +1,240 @@
+{
+  "generatedOn": "2026-03-28",
+  "purpose": "One-time official locator audit for configured gym and grocery brands. This is not a reusable scraping framework registry.",
+  "sources": [
+    {
+      "brand": "Planet Fitness",
+      "category": "gym",
+      "officialDomain": "planetfitness.com",
+      "locatorUrl": "https://www.planetfitness.com/?clubid=10353",
+      "scrapeMode": "xhr_json_or_search_results",
+      "difficulty": "medium",
+      "notes": "Official site renders nearby club cards with addresses. Likely XHR-backed."
+    },
+    {
+      "brand": "LA Fitness",
+      "category": "gym",
+      "officialDomain": "lafitness.com",
+      "locatorUrl": "https://www.lafitness.com/Pages/findClub.aspx",
+      "scrapeMode": "html_results_or_xhr",
+      "difficulty": "medium",
+      "notes": "Official results page lists clubs and addresses directly."
+    },
+    {
+      "brand": "Esporta Fitness",
+      "category": "gym",
+      "officialDomain": "esportafitness.com",
+      "locatorUrl": "https://www.esportafitness.com/Pages/clubhome.aspx?clubid=507",
+      "scrapeMode": "lafitness_family",
+      "difficulty": "easy",
+      "notes": "Official site indicates Esporta clubs are rebranded to LA Fitness."
+    },
+    {
+      "brand": "Crunch Fitness",
+      "category": "gym",
+      "officialDomain": "crunch.com",
+      "locatorUrl": "https://www.crunch.com/locations",
+      "scrapeMode": "xhr_json_or_browser",
+      "difficulty": "hard",
+      "notes": "Official locations app exists, likely requires network inspection."
+    },
+    {
+      "brand": "Workout Anytime",
+      "category": "gym",
+      "officialDomain": "workoutanytime.com",
+      "locatorUrl": "https://www.workoutanytime.com/locations/",
+      "scrapeMode": "xhr_json_or_directory",
+      "difficulty": "hard",
+      "notes": "Official locations page exists but needs DOM/network inspection."
+    },
+    {
+      "brand": "Anytime Fitness",
+      "category": "gym",
+      "officialDomain": "anytimefitness.com",
+      "locatorUrl": "https://www.anytimefitness.com/locations/us/ga/",
+      "scrapeMode": "directory_or_browser",
+      "difficulty": "medium",
+      "notes": "Official state path exists; need to verify club enumeration path."
+    },
+    {
+      "brand": "Snap Fitness",
+      "category": "gym",
+      "officialDomain": "snapfitness.com",
+      "locatorUrl": "https://www.snapfitness.com/us/gyms",
+      "scrapeMode": "browser_or_xhr",
+      "difficulty": "hard",
+      "notes": "Official site has gym pages, but the locator appears app-driven."
+    },
+    {
+      "brand": "YMCA",
+      "category": "gym",
+      "officialDomain": "ymcaatlanta.org",
+      "locatorUrl": "https://ymcaatlanta.org/locations",
+      "scrapeMode": "html_directory",
+      "difficulty": "easy",
+      "notes": "Metro Atlanta-specific and server-rendered."
+    },
+    {
+      "brand": "Life Time",
+      "category": "gym",
+      "officialDomain": "lifetime.life",
+      "locatorUrl": "https://www.lifetime.life/locations.html",
+      "scrapeMode": "html_directory_and_detail_crawl",
+      "difficulty": "easy",
+      "notes": "Official all-locations page links into state and club detail pages."
+    },
+    {
+      "brand": "Onelife Fitness",
+      "category": "gym",
+      "officialDomain": "onelifefitness.com",
+      "locatorUrl": "https://www.onelifefitness.com/gyms/atlanta-perimeter",
+      "scrapeMode": "detail_crawl",
+      "difficulty": "medium",
+      "notes": "Club detail pages are clear; need full club discovery path."
+    },
+    {
+      "brand": "Kroger",
+      "category": "grocery",
+      "officialDomain": "kroger.com",
+      "locatorUrl": "https://www.kroger.com/stores/grocery/ga/atlanta",
+      "scrapeMode": "html_directory_and_detail_crawl",
+      "difficulty": "easy",
+      "notes": "City/state store directory pattern is strong."
+    },
+    {
+      "brand": "Publix",
+      "category": "grocery",
+      "officialDomain": "publix.com",
+      "locatorUrl": "https://www.publix.com/locations",
+      "scrapeMode": "search_or_directory",
+      "difficulty": "medium",
+      "notes": "Official locations root exists; Georgia discovery path needs inspection."
+    },
+    {
+      "brand": "Walmart",
+      "category": "grocery",
+      "officialDomain": "walmart.com",
+      "locatorUrl": "https://www.walmart.com/store/finder",
+      "scrapeMode": "search_and_detail_crawl",
+      "difficulty": "medium",
+      "notes": "Use official finder to discover store pages, then detail pages as canonical source."
+    },
+    {
+      "brand": "Walmart Neighborhood Market",
+      "category": "grocery",
+      "officialDomain": "walmart.com",
+      "locatorUrl": "https://www.walmart.com/store/7601-atlanta-ga",
+      "scrapeMode": "search_and_detail_crawl",
+      "difficulty": "medium",
+      "notes": "Must distinguish page/store type from standard Walmart."
+    },
+    {
+      "brand": "Target Grocery",
+      "category": "grocery",
+      "officialDomain": "target.com",
+      "locatorUrl": "https://www.target.com/store-locator/store-directory/georgia",
+      "scrapeMode": "html_directory",
+      "difficulty": "easy",
+      "notes": "Need filter for grocery-capable stores if all Target stores are not desired."
+    },
+    {
+      "brand": "ALDI",
+      "category": "grocery",
+      "officialDomain": "stores.aldi.us",
+      "locatorUrl": "https://stores.aldi.us/ga",
+      "scrapeMode": "html_directory_and_detail_crawl",
+      "difficulty": "easy",
+      "notes": "Direct state/city/store hierarchy."
+    },
+    {
+      "brand": "Trader Joe's",
+      "category": "grocery",
+      "officialDomain": "locations.traderjoes.com",
+      "locatorUrl": "https://locations.traderjoes.com/ga/",
+      "scrapeMode": "html_directory_and_detail_crawl",
+      "difficulty": "easy",
+      "notes": "Direct state/city/store hierarchy."
+    },
+    {
+      "brand": "Lidl",
+      "category": "grocery",
+      "officialDomain": "lidl.com",
+      "locatorUrl": "https://www.lidl.com/stores",
+      "scrapeMode": "browser_or_xhr",
+      "difficulty": "hard",
+      "notes": "Official locator exists, but first pass did not reveal a crawlable Georgia directory."
+    },
+    {
+      "brand": "Whole Foods Market",
+      "category": "grocery",
+      "officialDomain": "wholefoodsmarket.com",
+      "locatorUrl": "https://www.wholefoodsmarket.com/stores",
+      "scrapeMode": "directory_or_search",
+      "difficulty": "medium",
+      "notes": "Official store root exists with rich detail pages."
+    },
+    {
+      "brand": "Sprouts Farmers Market",
+      "category": "grocery",
+      "officialDomain": "sprouts.com",
+      "locatorUrl": "https://www.sprouts.com/stores/ga/",
+      "scrapeMode": "html_directory_and_detail_crawl",
+      "difficulty": "easy",
+      "notes": "Clean state directory with store detail pages."
+    },
+    {
+      "brand": "Costco",
+      "category": "grocery",
+      "officialDomain": "costco.com",
+      "locatorUrl": "https://www.costco.com/warehouse-locations",
+      "scrapeMode": "detail_crawl_after_discovery",
+      "difficulty": "medium",
+      "notes": "Detail pages are rich; need reliable Georgia warehouse discovery."
+    },
+    {
+      "brand": "Sam's Club",
+      "category": "grocery",
+      "officialDomain": "samsclub.com",
+      "locatorUrl": "https://www.samsclub.com/club-finder",
+      "scrapeMode": "search_and_detail_crawl",
+      "difficulty": "medium",
+      "notes": "Club pages are rich once discovered from the official finder."
+    },
+    {
+      "brand": "The Fresh Market",
+      "category": "grocery",
+      "officialDomain": "stores.thefreshmarket.com",
+      "locatorUrl": "https://stores.thefreshmarket.com/ga",
+      "scrapeMode": "html_directory_and_detail_crawl",
+      "difficulty": "easy",
+      "notes": "Direct state/city/store hierarchy."
+    }
+  ],
+  "validationAnchors": [
+    {
+      "brand": "LA Fitness",
+      "name": "LA Fitness | 3535 Peachtree Rd NE Ste 300",
+      "address": "3535 Peachtree Rd NE Ste 300, Atlanta, GA 30326"
+    },
+    {
+      "brand": "Trader Joe's",
+      "name": "Atlanta store",
+      "address": "Atlanta, GA"
+    },
+    {
+      "brand": "Publix",
+      "name": "Buckhead store",
+      "address": "Buckhead, Atlanta, GA"
+    },
+    {
+      "brand": "ALDI",
+      "name": "Atlanta store",
+      "address": "Atlanta, GA"
+    },
+    {
+      "brand": "YMCA",
+      "name": "Atlanta-area branch",
+      "address": "Atlanta, GA"
+    }
+  ]
+}

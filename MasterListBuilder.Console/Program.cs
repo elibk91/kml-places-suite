@@ -48,6 +48,9 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
     private readonly IPlacesSearchExpander _searchExpander;
     private readonly IPlaceNameNormalizer _placeNameNormalizer;
     private readonly IGooglePlacesClient _client;
+    private const string RejectReasonRejectKeyword = "reject_keyword";
+    private const string RejectReasonMissingBrandTokens = "missing_required_brand_tokens";
+    private const string RejectReasonTypeMismatch = "type_mismatch";
 
     public MasterListBuilderRunner(
         ILogger<MasterListBuilderRunner> logger,
@@ -94,17 +97,20 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
             foreach (var group in config.Groups)
             {
                 var records = await GatherGroupAsync(group, config.Bounds, config.TileLatitudeStep, config.TileLongitudeStep, _client, apiKey);
-                var filtered = FilterRecords(group, records);
-                var deduped = Deduplicate(filtered);
+                var filterResult = FilterRecords(group, records);
+                var deduped = Deduplicate(filterResult.KeptRecords);
                 var normalized = _placeNameNormalizer.Normalize(deduped);
 
                 var outputPath = Path.Combine(parsed.Value.OutputDirectory, $"{group.Name}-master.jsonl");
                 await File.WriteAllLinesAsync(outputPath, normalized.Select(record => JsonSerializer.Serialize(record, JsonOptions)));
+                var auditPath = Path.Combine(parsed.Value.OutputDirectory, $"{group.Name}-audit.json");
+                await File.WriteAllTextAsync(auditPath, JsonSerializer.Serialize(CreateAuditSummary(group, records, filterResult, deduped, normalized), JsonOptions));
                 _logger.LogInformation(
-                    "Group {GroupName}: raw={RawCount}, filtered={FilteredCount}, deduped={DedupedCount}, normalized={NormalizedCount}",
+                    "Group {GroupName}: raw={RawCount}, kept={KeptCount}, rejected={RejectedCount}, deduped={DedupedCount}, normalized={NormalizedCount}",
                     group.Name,
                     records.Count,
-                    filtered.Count,
+                    filterResult.KeptRecords.Count,
+                    filterResult.Rejections.Count,
                     deduped.Count,
                     normalized.Count);
 
@@ -113,7 +119,8 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
                     GroupName = group.Name,
                     Mode = group.Mode,
                     OutputPath = outputPath,
-                    RecordCount = normalized.Count
+                    RecordCount = normalized.Count,
+                    AuditPath = auditPath
                 });
             }
 
@@ -200,69 +207,96 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
         return byCoordinates.Values.ToList();
     }
 
-    private IReadOnlyList<NormalizedPlaceRecord> FilterRecords(SearchGroup group, IReadOnlyList<NormalizedPlaceRecord> records)
+    private FilterOutcome FilterRecords(SearchGroup group, IReadOnlyList<NormalizedPlaceRecord> records)
     {
         if (!group.ApplyCategoryFilter)
         {
-            return records;
+            return new FilterOutcome(records, Array.Empty<RejectedRecord>());
         }
 
         return group.Name.ToLowerInvariant() switch
         {
-            "gyms" => records.Where(IsLikelyGym).ToArray(),
-            "groceries" => records.Where(IsLikelyGrocery).ToArray(),
-            _ => records
+            "gyms" => FilterByPredicate(records, EvaluateGymRecord),
+            "groceries" => FilterByPredicate(records, EvaluateGroceryRecord),
+            _ => new FilterOutcome(records, Array.Empty<RejectedRecord>())
         };
     }
 
-    private bool IsLikelyGym(NormalizedPlaceRecord record)
+    private FilterOutcome FilterByPredicate(
+        IReadOnlyList<NormalizedPlaceRecord> records,
+        Func<NormalizedPlaceRecord, RecordEvaluation> evaluator)
     {
-        if (ContainsRejectKeyword(record.Name) || ContainsRejectKeyword(record.FormattedAddress))
+        var kept = new List<NormalizedPlaceRecord>(records.Count);
+        var rejections = new List<RejectedRecord>();
+
+        foreach (var record in records)
         {
-            return false;
+            var evaluation = evaluator(record);
+            if (evaluation.IsAccepted)
+            {
+                kept.Add(record);
+                continue;
+            }
+
+            rejections.Add(new RejectedRecord
+            {
+                Query = record.Query,
+                Name = record.Name,
+                FormattedAddress = record.FormattedAddress,
+                SourceQueryType = record.SourceQueryType,
+                PlaceId = record.PlaceId,
+                Latitude = record.Latitude,
+                Longitude = record.Longitude,
+                Reason = evaluation.Reason ?? "rejected",
+                Types = record.Types
+            });
         }
 
-        if (!MatchesExpectedChain(record))
-        {
-            return false;
-        }
-
-        if (ContainsType(record, "gym"))
-        {
-            return true;
-        }
-
-        return ContainsNameKeyword(record.Name, "fitness")
-               || ContainsNameKeyword(record.Name, "ymca")
-               || ContainsNameKeyword(record.Name, "workout");
+        return new FilterOutcome(kept, rejections);
     }
 
-    private bool IsLikelyGrocery(NormalizedPlaceRecord record)
+    private RecordEvaluation EvaluateGymRecord(NormalizedPlaceRecord record)
     {
         if (ContainsRejectKeyword(record.Name) || ContainsRejectKeyword(record.FormattedAddress))
         {
-            return false;
+            return RecordEvaluation.Reject(RejectReasonRejectKeyword);
         }
 
         if (!MatchesExpectedChain(record))
         {
-            return false;
+            return RecordEvaluation.Reject(RejectReasonMissingBrandTokens);
         }
 
-        if (ContainsType(record, "grocery_store") || ContainsType(record, "supermarket"))
+        if (record.Query.Contains("YMCA", StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return HasAnyType(record, AllowedGymTypes)
+                ? RecordEvaluation.Accept
+                : RecordEvaluation.Reject(RejectReasonTypeMismatch);
         }
 
-        return record.Query.Contains("Walmart", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("Target", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("Trader Joe", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("Whole Foods", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("Sprouts", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("Publix", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("Kroger", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("ALDI", StringComparison.OrdinalIgnoreCase)
-               || record.Query.Contains("Lidl", StringComparison.OrdinalIgnoreCase);
+        return HasAnyType(record, AllowedGymTypes)
+            ? RecordEvaluation.Accept
+            : RecordEvaluation.Reject(RejectReasonTypeMismatch);
+    }
+
+    private RecordEvaluation EvaluateGroceryRecord(NormalizedPlaceRecord record)
+    {
+        if (ContainsRejectKeyword(record.Name) || ContainsRejectKeyword(record.FormattedAddress))
+        {
+            return RecordEvaluation.Reject(RejectReasonRejectKeyword);
+        }
+
+        if (!MatchesExpectedChain(record))
+        {
+            return RecordEvaluation.Reject(RejectReasonMissingBrandTokens);
+        }
+
+        if (HasAnyType(record, AllowedGroceryTypes))
+        {
+            return RecordEvaluation.Accept;
+        }
+
+        return RecordEvaluation.Reject(RejectReasonTypeMismatch);
     }
 
     private bool MatchesExpectedChain(NormalizedPlaceRecord record)
@@ -285,15 +319,15 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
         var normalizedName = NormalizeForChainMatch(placeName);
         var normalizedExpected = NormalizeForChainMatch(expectedChain);
 
-        if (normalizedName.Contains(normalizedExpected, StringComparison.Ordinal))
+        if (ContainsNormalizedPhrase(normalizedName, normalizedExpected))
         {
             return true;
         }
 
-        var expectedTokens = normalizedExpected
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var actualTokens = TokenizeNormalized(normalizedName);
+        var expectedTokens = TokenizeNormalized(normalizedExpected);
 
-        return expectedTokens.Length > 0 && expectedTokens.All(token => normalizedName.Contains(token, StringComparison.Ordinal));
+        return expectedTokens.Length > 0 && expectedTokens.All(actualTokens.Contains);
     }
 
     private string NormalizeForChainMatch(string value)
@@ -310,25 +344,23 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
     private bool ContainsType(NormalizedPlaceRecord record, string type) =>
         record.Types.Any(candidate => candidate.Equals(type, StringComparison.OrdinalIgnoreCase));
 
-    private bool ContainsNameKeyword(string? value, string keyword) =>
-        !string.IsNullOrWhiteSpace(value) && value.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+    private bool HasAnyType(NormalizedPlaceRecord record, IReadOnlySet<string> allowedTypes) =>
+        record.Types.Any(candidate => allowedTypes.Contains(candidate));
 
-    private static IEnumerable<string> Tokenize(string? value)
+    private static bool ContainsNormalizedPhrase(string normalizedValue, string normalizedPhrase)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (string.IsNullOrWhiteSpace(normalizedValue) || string.IsNullOrWhiteSpace(normalizedPhrase))
         {
-            yield break;
+            return false;
         }
 
-        var parts = value.Split(
-            [' ', '-', '/', '&', ',', '.', '(', ')', ':', ';', '|'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        foreach (var part in parts)
-        {
-            yield return part;
-        }
+        var paddedValue = $" {normalizedValue} ";
+        var paddedPhrase = $" {normalizedPhrase} ";
+        return paddedValue.Contains(paddedPhrase, StringComparison.Ordinal);
     }
+
+    private static string[] TokenizeNormalized(string value) =>
+        value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private bool ContainsRejectKeyword(string? value)
     {
@@ -360,6 +392,26 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
         "bank",
         "salon"
     ];
+
+    private static readonly HashSet<string> AllowedGymTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "gym",
+        "fitness_center",
+        "sports_complex",
+        "sports_activity_location",
+        "athletic_field",
+        "swimming_pool",
+        "yoga_studio"
+    };
+
+    private static readonly HashSet<string> AllowedGroceryTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "grocery_store",
+        "supermarket",
+        "food_store",
+        "warehouse_store",
+        "store"
+    };
 
     private static readonly Dictionary<string, string[]> ChainAliases = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -474,6 +526,83 @@ public sealed class MasterListBuilderRunner : IMasterListBuilderApp
         public string OutputPath { get; init; } = string.Empty;
 
         public int RecordCount { get; init; }
+
+        public string AuditPath { get; init; } = string.Empty;
+    }
+
+    private AuditSummary CreateAuditSummary(
+        SearchGroup group,
+        IReadOnlyList<NormalizedPlaceRecord> rawRecords,
+        FilterOutcome filterResult,
+        IReadOnlyList<NormalizedPlaceRecord> dedupedRecords,
+        IReadOnlyList<NormalizedPlaceRecord> normalizedRecords)
+    {
+        return new AuditSummary
+        {
+            GroupName = group.Name,
+            RawCount = rawRecords.Count,
+            KeptCount = filterResult.KeptRecords.Count,
+            RejectedCount = filterResult.Rejections.Count,
+            DedupedCount = dedupedRecords.Count,
+            NormalizedCount = normalizedRecords.Count,
+            KeptCountsByQuery = normalizedRecords
+                .GroupBy(record => record.Query, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(grouping => grouping.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(grouping => grouping.Key, grouping => grouping.Count(), StringComparer.OrdinalIgnoreCase),
+            Rejections = filterResult.Rejections
+        };
+    }
+
+    private sealed record FilterOutcome(
+        IReadOnlyList<NormalizedPlaceRecord> KeptRecords,
+        IReadOnlyList<RejectedRecord> Rejections);
+
+    private sealed record RecordEvaluation(bool IsAccepted, string? Reason)
+    {
+        public static RecordEvaluation Accept { get; } = new(true, null);
+
+        public static RecordEvaluation Reject(string reason) => new(false, reason);
+    }
+
+    private sealed class RejectedRecord
+    {
+        public string Query { get; init; } = string.Empty;
+
+        public string Name { get; init; } = string.Empty;
+
+        public string FormattedAddress { get; init; } = string.Empty;
+
+        public string SourceQueryType { get; init; } = string.Empty;
+
+        public string PlaceId { get; init; } = string.Empty;
+
+        public double Latitude { get; init; }
+
+        public double Longitude { get; init; }
+
+        public string Reason { get; init; } = string.Empty;
+
+        public IReadOnlyList<string> Types { get; init; } = Array.Empty<string>();
+    }
+
+    private sealed class AuditSummary
+    {
+        public string GroupName { get; init; } = string.Empty;
+
+        public int RawCount { get; init; }
+
+        public int KeptCount { get; init; }
+
+        public int RejectedCount { get; init; }
+
+        public int DedupedCount { get; init; }
+
+        public int NormalizedCount { get; init; }
+
+        public IReadOnlyDictionary<string, int> KeptCountsByQuery { get; init; } =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        public IReadOnlyList<RejectedRecord> Rejections { get; init; } = Array.Empty<RejectedRecord>();
     }
 }
 

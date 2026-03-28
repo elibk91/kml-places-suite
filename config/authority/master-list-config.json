@@ -9,42 +9,42 @@
     "provider": "Local",
     "environmentVariableName": "GoogleMaps__ApiKey"
   },
-  "tileLatitudeStep": 0.05,
-  "tileLongitudeStep": 0.05,
+  "tileLatitudeStep": 0.025,
+  "tileLongitudeStep": 0.025,
   "groups": [
     {
       "name": "gyms",
       "mode": "tiled",
       "searches": [
-        { "query": "Planet Fitness", "category": "gym" },
-        { "query": "LA Fitness", "category": "gym" },
-        { "query": "Esporta Fitness", "category": "gym" },
-        { "query": "Crunch Fitness", "category": "gym" },
-        { "query": "Workout Anytime", "category": "gym" },
-        { "query": "Anytime Fitness", "category": "gym" },
-        { "query": "Snap Fitness", "category": "gym" },
-        { "query": "YMCA", "category": "gym" },
-        { "query": "Life Time", "category": "gym" },
-        { "query": "Onelife Fitness", "category": "gym" }
+        { "query": "Planet Fitness", "category": "gym", "sourceQueryType": "base" },
+        { "query": "LA Fitness", "category": "gym", "sourceQueryType": "base" },
+        { "query": "Esporta Fitness", "category": "gym", "sourceQueryType": "base" },
+        { "query": "Crunch Fitness", "category": "gym", "sourceQueryType": "base" },
+        { "query": "Workout Anytime", "category": "gym", "sourceQueryType": "base" },
+        { "query": "Anytime Fitness", "category": "gym", "sourceQueryType": "base" },
+        { "query": "Snap Fitness", "category": "gym", "sourceQueryType": "base" },
+        { "query": "YMCA", "category": "gym", "sourceQueryType": "base" },
+        { "query": "Life Time", "category": "gym", "sourceQueryType": "base" },
+        { "query": "Onelife Fitness", "category": "gym", "sourceQueryType": "base" }
       ]
     },
     {
       "name": "groceries",
       "mode": "tiled",
       "searches": [
-        { "query": "Kroger", "category": "grocery" },
-        { "query": "Publix", "category": "grocery" },
-        { "query": "Walmart", "category": "grocery" },
-        { "query": "Walmart Neighborhood Market", "category": "grocery" },
-        { "query": "Target Grocery", "category": "grocery" },
-        { "query": "ALDI", "category": "grocery" },
-        { "query": "Trader Joe's", "category": "grocery" },
-        { "query": "Lidl", "category": "grocery" },
-        { "query": "Whole Foods Market", "category": "grocery" },
-        { "query": "Sprouts Farmers Market", "category": "grocery" },
-        { "query": "Costco", "category": "grocery" },
-        { "query": "Sam's Club", "category": "grocery" },
-        { "query": "The Fresh Market", "category": "grocery" }
+        { "query": "Kroger", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Publix", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Walmart", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Walmart Neighborhood Market", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Target Grocery", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "ALDI", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Trader Joe's", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Lidl", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Whole Foods Market", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Sprouts Farmers Market", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Costco", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "Sam's Club", "category": "grocery", "sourceQueryType": "base" },
+        { "query": "The Fresh Market", "category": "grocery", "sourceQueryType": "base" }
       ]
     }
   ]
