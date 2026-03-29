@@ -2,7 +2,7 @@
 param(
     [string]$MasterListOutputDirectory = ".\scripts\in\master-lists",
 
-    [string]$CategoryConfigPath = ".\config\authority\category-config.json",
+    [string]$CategoryConfigPath = ".\config\authority\category-config.with-gyms.json",
 
     [string]$RunId,
 
@@ -56,6 +56,7 @@ $arcSourceRoot = Join-Path $scriptDirectory "in\arc-sources"
 $arcParksTrailsRoot = Join-Path $arcSourceRoot "parks-trails"
 $arcMartaRoot = Join-Path $arcSourceRoot "marta"
 $categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
+$categoryConfigFileName = [System.IO.Path]::GetFileNameWithoutExtension((Resolve-DisplayPath -Path $CategoryConfigPath))
 
 if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
     # Keep durable source KML/KMZ in-repo so active workflows do not depend on developer Downloads folders.
@@ -79,7 +80,7 @@ if (-not $RunId) {
 }
 
 if (-not $RunOutputDirectory) {
-    $RunOutputDirectory = Join-Path $scriptDirectory "out\runs"
+    $RunOutputDirectory = Join-Path (Join-Path $scriptDirectory "out\runs") $categoryConfigFileName
 }
 
 if (-not $RunOutputDirectory.EndsWith($RunId, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -129,11 +130,96 @@ if (-not $TileOutputDirectory) {
     $TileOutputDirectory = Join-Path $RunOutputDirectory "tiles"
 }
 
+$UsedCategoryConfigOutputPath = Join-Path $RunOutputDirectory "category-config.used.json"
+$UsedCategoryConfigMetadataOutputPath = Join-Path $RunOutputDirectory "category-config.used.metadata.json"
+$InputSnapshotRoot = Join-Path $RunOutputDirectory "inputs"
+$UsedMasterListsSnapshotRoot = Join-Path $InputSnapshotRoot "master-lists"
+$UsedArcSourcesSnapshotRoot = Join-Path $InputSnapshotRoot "arc-sources"
+$UsedCategoryConfigSnapshotPath = Join-Path $InputSnapshotRoot "category-config.used.json"
+
 function Assert-WorkflowPrerequisites {
     Write-FunctionTrace -Name $MyInvocation.MyCommand.Name
 
     Assert-PathExists -Path $MasterListOutputDirectory -FailureMessage "MasterListOutputDirectory does not exist."
     Assert-PathExists -Path $CategoryConfigPath -FailureMessage "CategoryConfigPath does not exist."
+}
+
+function Save-CategoryConfigArtifacts {
+    Write-FunctionTrace -Name $MyInvocation.MyCommand.Name -Arguments @{
+        SourcePath = (Resolve-DisplayPath -Path $CategoryConfigPath)
+        UsedConfigPath = (Resolve-DisplayPath -Path $UsedCategoryConfigOutputPath)
+    }
+
+    Assert-PathExists -Path $CategoryConfigPath -FailureMessage "Category config '$CategoryConfigPath' does not exist."
+    Ensure-ParentDirectory -Path $UsedCategoryConfigOutputPath
+    Ensure-ParentDirectory -Path $UsedCategoryConfigMetadataOutputPath
+    Ensure-ParentDirectory -Path $UsedCategoryConfigSnapshotPath
+
+    Copy-Item -Path (Resolve-DisplayPath -Path $CategoryConfigPath) -Destination (Resolve-DisplayPath -Path $UsedCategoryConfigOutputPath) -Force
+    Copy-Item -Path (Resolve-DisplayPath -Path $CategoryConfigPath) -Destination (Resolve-DisplayPath -Path $UsedCategoryConfigSnapshotPath) -Force
+
+    $metadata = [ordered]@{
+        runId = $RunId
+        sourceCategoryConfigPath = (Resolve-DisplayPath -Path $CategoryConfigPath)
+        usedCategoryConfigPath = (Resolve-DisplayPath -Path $UsedCategoryConfigOutputPath)
+        usedCategoryConfigSnapshotPath = (Resolve-DisplayPath -Path $UsedCategoryConfigSnapshotPath)
+        capturedAt = (Get-Date).ToString("o")
+        masterListOutputDirectory = (Resolve-DisplayPath -Path $MasterListOutputDirectory)
+        masterListInputs = @(
+            (Resolve-DisplayPath -Path (Join-Path $MasterListOutputDirectory "gyms-master.jsonl")),
+            (Resolve-DisplayPath -Path (Join-Path $MasterListOutputDirectory "groceries-master.jsonl"))
+        )
+        masterListSnapshotRoot = (Resolve-DisplayPath -Path $UsedMasterListsSnapshotRoot)
+        masterListSnapshotPaths = @(
+            (Resolve-DisplayPath -Path (Join-Path $UsedMasterListsSnapshotRoot "gyms-master.jsonl")),
+            (Resolve-DisplayPath -Path (Join-Path $UsedMasterListsSnapshotRoot "groceries-master.jsonl"))
+        )
+        arcParkTrailInputs = @($ArcInputPaths | ForEach-Object { Resolve-DisplayPath -Path $_ })
+        arcMartaInputs = @($ArcMartaInputPaths | ForEach-Object { Resolve-DisplayPath -Path $_ })
+        arcSourceSnapshotRoot = (Resolve-DisplayPath -Path $UsedArcSourcesSnapshotRoot)
+        finalRequestOutputPath = (Resolve-DisplayPath -Path $FinalRequestOutputPath)
+        kmlOutputPath = (Resolve-DisplayPath -Path $KmlOutputPath)
+        tileOutputDirectory = (Resolve-DisplayPath -Path $TileOutputDirectory)
+    }
+
+    $metadata | ConvertTo-Json -Depth 5 | Set-Content -Path (Resolve-DisplayPath -Path $UsedCategoryConfigMetadataOutputPath) -Encoding UTF8
+    Assert-PathExists -Path $UsedCategoryConfigOutputPath -FailureMessage "Used category config snapshot was not produced."
+    Assert-PathExists -Path $UsedCategoryConfigMetadataOutputPath -FailureMessage "Used category config metadata was not produced."
+    Assert-PathExists -Path $UsedCategoryConfigSnapshotPath -FailureMessage "Used category config input snapshot was not produced."
+}
+
+function Save-InputSnapshots {
+    Write-FunctionTrace -Name $MyInvocation.MyCommand.Name -Arguments @{
+        SnapshotRoot = (Resolve-DisplayPath -Path $InputSnapshotRoot)
+    }
+
+    New-Item -ItemType Directory -Force -Path (Resolve-DisplayPath -Path $UsedMasterListsSnapshotRoot) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Resolve-DisplayPath -Path $UsedArcSourcesSnapshotRoot) | Out-Null
+
+    $masterListPaths = @(
+        (Join-Path $MasterListOutputDirectory "gyms-master.jsonl"),
+        (Join-Path $MasterListOutputDirectory "groceries-master.jsonl")
+    )
+
+    foreach ($masterListPath in $masterListPaths) {
+        Assert-PathExists -Path $masterListPath -FailureMessage "Master list '$masterListPath' does not exist for snapshotting."
+        $destinationPath = Join-Path $UsedMasterListsSnapshotRoot ([System.IO.Path]::GetFileName($masterListPath))
+        Copy-Item -Path (Resolve-DisplayPath -Path $masterListPath) -Destination (Resolve-DisplayPath -Path $destinationPath) -Force
+    }
+
+    foreach ($arcInputPath in @($ArcInputPaths + $ArcMartaInputPaths)) {
+        Assert-PathExists -Path $arcInputPath -FailureMessage "ARC input '$arcInputPath' does not exist for snapshotting."
+        $relativePath = if ((Resolve-DisplayPath -Path $arcInputPath).StartsWith((Resolve-DisplayPath -Path $arcSourceRoot), [System.StringComparison]::OrdinalIgnoreCase)) {
+            Get-RelativeDisplayPath -BasePath $arcSourceRoot -TargetPath $arcInputPath
+        }
+        else {
+            [System.IO.Path]::GetFileName($arcInputPath)
+        }
+
+        $destinationPath = Join-Path $UsedArcSourcesSnapshotRoot $relativePath
+        Ensure-ParentDirectory -Path $destinationPath
+        Copy-Item -Path (Resolve-DisplayPath -Path $arcInputPath) -Destination (Resolve-DisplayPath -Path $destinationPath) -Force
+    }
 }
 
 function Assert-RequiredMasterLists {
@@ -406,6 +492,8 @@ try {
     Write-ProjectTrace -ProjectPath $kmlGeneratorProjectPath -Description "KML generator"
     Write-ProjectTrace -ProjectPath $kmlTilerProjectPath -Description "KML tiler"
     Assert-WorkflowPrerequisites
+    Save-CategoryConfigArtifacts
+    Save-InputSnapshots
     Assert-RequiredMasterLists -RequiredFiles $requiredMasterLists
     Invoke-ArcMartaExtraction -ProjectPath $arcExtractorProjectPath
     $parkTrailInputPath = Invoke-ArcParkTrailExtraction -ProjectPath $arcExtractorProjectPath

@@ -10,7 +10,7 @@
     "gym": 0.5,
     "grocery": 0.25,
     "marta": 0.75,
-    "park": 0.75
+    "park": 0.5
   },
   "minimumParkSquareFeet": 700000.0,
   "minimumTrailMiles": 0.5,

@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ParkName,
 
-    [string]$CategoryConfigPath = ".\config\authority\category-config.json",
+    [string]$CategoryConfigPath = ".\config\authority\category-config.with-gyms.json",
 
     [string]$RunId,
 

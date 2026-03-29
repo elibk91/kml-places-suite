@@ -1,0 +1,172 @@
+{
+    "gyms":  {
+                 "beforeCount":  75,
+                 "afterCount":  63,
+                 "removedCount":  12,
+                 "beforeByQuery":  [
+                                       {
+                                           "query":  "Anytime Fitness",
+                                           "count":  2
+                                       },
+                                       {
+                                           "query":  "Crunch Fitness",
+                                           "count":  3
+                                       },
+                                       {
+                                           "query":  "LA Fitness",
+                                           "count":  17
+                                       },
+                                       {
+                                           "query":  "Life Time",
+                                           "count":  4
+                                       },
+                                       {
+                                           "query":  "Onelife Fitness",
+                                           "count":  1
+                                       },
+                                       {
+                                           "query":  "Planet Fitness",
+                                           "count":  19
+                                       },
+                                       {
+                                           "query":  "Snap Fitness",
+                                           "count":  3
+                                       },
+                                       {
+                                           "query":  "Workout Anytime",
+                                           "count":  6
+                                       },
+                                       {
+                                           "query":  "YMCA",
+                                           "count":  20
+                                       }
+                                   ],
+                 "afterByQuery":  [
+                                      {
+                                          "query":  "Anytime Fitness",
+                                          "count":  2
+                                      },
+                                      {
+                                          "query":  "Crunch Fitness",
+                                          "count":  3
+                                      },
+                                      {
+                                          "query":  "LA Fitness",
+                                          "count":  15
+                                      },
+                                      {
+                                          "query":  "Life Time",
+                                          "count":  4
+                                      },
+                                      {
+                                          "query":  "Onelife Fitness",
+                                          "count":  1
+                                      },
+                                      {
+                                          "query":  "Planet Fitness",
+                                          "count":  19
+                                      },
+                                      {
+                                          "query":  "Snap Fitness",
+                                          "count":  3
+                                      },
+                                      {
+                                          "query":  "Workout Anytime",
+                                          "count":  6
+                                      },
+                                      {
+                                          "query":  "YMCA",
+                                          "count":  10
+                                      }
+                                  ]
+             },
+    "groceries":  {
+                      "beforeCount":  218,
+                      "afterCount":  140,
+                      "removedCount":  78,
+                      "beforeByQuery":  [
+                                            {
+                                                "query":  "ALDI",
+                                                "count":  12
+                                            },
+                                            {
+                                                "query":  "Kroger",
+                                                "count":  78
+                                            },
+                                            {
+                                                "query":  "Lidl",
+                                                "count":  4
+                                            },
+                                            {
+                                                "query":  "Publix",
+                                                "count":  65
+                                            },
+                                            {
+                                                "query":  "Sprouts Farmers Market",
+                                                "count":  5
+                                            },
+                                            {
+                                                "query":  "Target Grocery",
+                                                "count":  15
+                                            },
+                                            {
+                                                "query":  "The Fresh Market",
+                                                "count":  3
+                                            },
+                                            {
+                                                "query":  "Trader Joe\u0027s",
+                                                "count":  4
+                                            },
+                                            {
+                                                "query":  "Walmart",
+                                                "count":  22
+                                            },
+                                            {
+                                                "query":  "Whole Foods Market",
+                                                "count":  10
+                                            }
+                                        ],
+                      "afterByQuery":  [
+                                           {
+                                               "query":  "ALDI",
+                                               "count":  12
+                                           },
+                                           {
+                                               "query":  "Kroger",
+                                               "count":  28
+                                           },
+                                           {
+                                               "query":  "Lidl",
+                                               "count":  4
+                                           },
+                                           {
+                                               "query":  "Publix",
+                                               "count":  42
+                                           },
+                                           {
+                                               "query":  "Sprouts Farmers Market",
+                                               "count":  5
+                                           },
+                                           {
+                                               "query":  "Target Grocery",
+                                               "count":  15
+                                           },
+                                           {
+                                               "query":  "The Fresh Market",
+                                               "count":  3
+                                           },
+                                           {
+                                               "query":  "Trader Joe\u0027s",
+                                               "count":  4
+                                           },
+                                           {
+                                               "query":  "Walmart",
+                                               "count":  19
+                                           },
+                                           {
+                                               "query":  "Whole Foods Market",
+                                               "count":  8
+                                           }
+                                       ]
+                  }
+}

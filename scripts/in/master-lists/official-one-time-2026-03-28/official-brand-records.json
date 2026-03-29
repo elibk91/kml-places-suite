@@ -1,0 +1,70 @@
+{
+  "generatedOn": "2026-03-28",
+  "purpose": "One-time official-source working dataset for replacing Google-built gym and grocery master lists.",
+  "records": [
+    {
+      "brand": "ALDI",
+      "category": "grocery",
+      "name": "ALDI",
+      "formattedAddress": "3963 Buford Hwy, Atlanta, GA 30345, USA",
+      "sourceUrl": "https://info.aldi.us/stores/l/ga/atlanta/3963-buford-hwy/l933",
+      "types": ["grocery_store"]
+    },
+    {
+      "brand": "Trader Joe's",
+      "category": "grocery",
+      "name": "Trader Joe's Atlanta (730)",
+      "formattedAddress": "931 Monroe Dr, Atlanta, GA 30308, USA",
+      "sourceUrl": "https://locations.traderjoes.com/ga/atlanta/730/",
+      "types": ["grocery_store"]
+    },
+    {
+      "brand": "Trader Joe's",
+      "category": "grocery",
+      "name": "Trader Joe's Buckhead (735)",
+      "formattedAddress": "3183 Peachtree Rd, Atlanta, GA 30305, USA",
+      "sourceUrl": "https://locations.traderjoes.com/ga/atlanta/735/",
+      "types": ["grocery_store"]
+    },
+    {
+      "brand": "Onelife Fitness",
+      "category": "gym",
+      "name": "Onelife Fitness - Perimeter Sports Club",
+      "formattedAddress": "1181 Hammond Dr, Dunwoody, GA 30346, USA",
+      "sourceUrl": "https://www.onelifefitness.com/gyms/atlanta-perimeter",
+      "types": ["gym"]
+    },
+    {
+      "brand": "Life Time",
+      "category": "gym",
+      "name": "Life Time - Sandy Springs",
+      "formattedAddress": "5600 Roswell Road Building I, Sandy Springs, GA 30342, USA",
+      "sourceUrl": "https://www.lifetime.life/locations/ga/sandy-springs.html",
+      "types": ["gym"]
+    },
+    {
+      "brand": "Life Time",
+      "category": "gym",
+      "name": "Life Time - Buckhead at Phipps Plaza",
+      "formattedAddress": "3470 Peachtree Rd, Atlanta, GA 30326, USA",
+      "sourceUrl": "https://www.lifetime.life/locations/ga/buckhead.html",
+      "types": ["gym"]
+    },
+    {
+      "brand": "YMCA",
+      "category": "gym",
+      "name": "Carl E. Sanders Family YMCA at Buckhead",
+      "formattedAddress": "1160 Moores Mill Road, Atlanta, GA 30327, USA",
+      "sourceUrl": "https://ymcaatlanta.org/locations/carl-e-sanders-family-ymca-buckhead",
+      "types": ["gym"]
+    },
+    {
+      "brand": "YMCA",
+      "category": "gym",
+      "name": "Andrew and Walter Young Family YMCA",
+      "formattedAddress": "2220 Campbellton Road SW, Atlanta, GA 30311, USA",
+      "sourceUrl": "https://ymcaatlanta.org/locations/andrew-and-walter-young-family-ymca",
+      "types": ["gym"]
+    }
+  ]
+}

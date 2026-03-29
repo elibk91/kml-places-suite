@@ -1,0 +1,74 @@
+[
+    {
+        "query":  "YMCA",
+        "name":  "YMCA/Concorde Soccer Complex",
+        "formattedAddress":  "3820 Ashford Dunwoody Rd NE, Atlanta, GA 30319, USA",
+        "reason":  "non_club_entity:soccer complex"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "Cowart YMCA/Concorde Soccer Fields",
+        "formattedAddress":  "3816-3830 Ashford Dunwoody Rd NE, Atlanta, GA 30319, USA",
+        "reason":  "non_club_entity:soccer field"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "YMCA soccer fields",
+        "formattedAddress":  "940 Windsor Parkway, Atlanta, GA 30342, USA",
+        "reason":  "non_club_entity:soccer field"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "YMCA Soccer Fields - Windsor",
+        "formattedAddress":  "Peachtree Dunwoody Rd NE, Sandy Springs, GA 30342, USA",
+        "reason":  "non_club_entity:soccer field"
+    },
+    {
+        "query":  "LA Fitness",
+        "name":  "PoleLaTeaz: Pole Dance, Aerial Hoop, Aerial Silks Fitness Studio",
+        "formattedAddress":  "2700 Northeast Expy C-300, Atlanta, GA 30345, USA",
+        "reason":  "brand_mismatch"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "Chattahoochee YMCA Head Start Academy",
+        "formattedAddress":  "2751 Peyton Rd NW, Atlanta, GA 30318, USA",
+        "reason":  "non_club_entity:head start"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "YMCA at Morehouse School of Medicine",
+        "formattedAddress":  "455 Lee St SW, Atlanta, GA 30310, USA",
+        "reason":  "non_club_entity:school of medicine"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "Dean Rusk YMCA Head Start Academy",
+        "formattedAddress":  "433 Peeples St SW, Atlanta, GA 30310, USA",
+        "reason":  "non_club_entity:head start"
+    },
+    {
+        "query":  "LA Fitness",
+        "name":  "Snap Fitness Atlanta (Glenwood Park)",
+        "formattedAddress":  "920 Glenwood Ave SE Suite 102/103, Atlanta, GA 30316, USA",
+        "reason":  "brand_mismatch"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "YMCA Is Elanie Clark",
+        "formattedAddress":  "Georgia State Capitol, Atlanta, GA 30334, USA",
+        "reason":  "non_club_entity:is elanie clark"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "YMCA East Lake Pool",
+        "formattedAddress":  "1765 Memorial Dr SE, Atlanta, GA 30317, USA",
+        "reason":  "non_club_entity:pool"
+    },
+    {
+        "query":  "YMCA",
+        "name":  "YMCA Youth and Teen Development Center",
+        "formattedAddress":  "1765 Memorial Dr SE, Atlanta, GA 30317, USA",
+        "reason":  "non_club_entity:youth and teen development center"
+    }
+]

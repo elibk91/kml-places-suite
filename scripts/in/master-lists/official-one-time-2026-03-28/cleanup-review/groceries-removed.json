@@ -1,0 +1,704 @@
+[
+    {
+        "query":  "Walmart",
+        "name":  "Walmart Pharmacy | Winters Chapel Rd",
+        "formattedAddress":  "5025 Winters Chapel Rd, Dunwoody, GA 30360, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Walmart Neighborhood Market | Winters Chapel Rd",
+        "parentAddress":  "5025 Winters Chapel Rd, Dunwoody, GA 30360, USA",
+        "parentDistanceMiles":  0.030
+    },
+    {
+        "query":  "Walmart",
+        "name":  "Walmart Pharmacy | Memorial Dr",
+        "formattedAddress":  "3580 Memorial Dr, Decatur, GA 30032, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Walmart Supercenter | Memorial Dr | MMSg",
+        "parentAddress":  "3580 Memorial Dr, Decatur, GA 30032, USA",
+        "parentDistanceMiles":  0.058
+    },
+    {
+        "query":  "Walmart",
+        "name":  "Walmart Pharmacy | N Decatur Rd",
+        "formattedAddress":  "2525 N Decatur Rd, Decatur, GA 30033, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Walmart Supercenter | N Decatur Rd",
+        "parentAddress":  "2525 N Decatur Rd, Decatur, GA 30033, USA",
+        "parentDistanceMiles":  0.028
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Money Services | Powers Ferry Rd",
+        "formattedAddress":  "1122 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "reason":  "support_entity_collapsed:money services",
+        "parentName":  "Kroger | Powers Ferry Rd",
+        "parentAddress":  "1310 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "parentDistanceMiles":  0.245
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Powers Ferry Rd",
+        "formattedAddress":  "1310 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Powers Ferry Rd",
+        "parentAddress":  "1310 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "parentDistanceMiles":  0.023
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Fuel Center | Powers Ferry Rd",
+        "formattedAddress":  "1310 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "reason":  "support_entity_collapsed:fuel center",
+        "parentName":  "Kroger | Powers Ferry Rd",
+        "parentAddress":  "1310 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "parentDistanceMiles":  0.078
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Powers Ferry Rd",
+        "formattedAddress":  "1310 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Powers Ferry Rd",
+        "parentAddress":  "1310 Powers Ferry Rd, Marietta, GA 30067, USA",
+        "parentDistanceMiles":  0.024
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Chamblee Dunwoody Rd",
+        "formattedAddress":  "4498 Chamblee Dunwoody Rd, Dunwoody, GA 30338, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Chamblee Dunwoody Rd",
+        "parentAddress":  "4498 Chamblee Dunwoody Rd, Dunwoody, GA 30338, USA",
+        "parentDistanceMiles":  0.020
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Singleton Rd",
+        "formattedAddress":  "6050 Singleton Rd, Norcross, GA 30093, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Singleton Rd",
+        "parentAddress":  "6050 Singleton Rd, Norcross, GA 30093, USA",
+        "parentDistanceMiles":  0.000
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Singleton Rd",
+        "formattedAddress":  "6050 Singleton Rd, Norcross, GA 30093, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Singleton Rd",
+        "parentAddress":  "6050 Singleton Rd, Norcross, GA 30093, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Lawrenceville Hwy | 6NPQ",
+        "formattedAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Lawrenceville Hwy | 045s",
+        "parentAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "parentDistanceMiles":  0.016
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Fuel Center | Lawrenceville Hwy | atvc",
+        "formattedAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "reason":  "support_entity_collapsed:fuel center",
+        "parentName":  "Kroger | Lawrenceville Hwy | 045s",
+        "parentAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "parentDistanceMiles":  0.002
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Lawrenceville Hwy | GH-A",
+        "formattedAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Lawrenceville Hwy | 045s",
+        "parentAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "parentDistanceMiles":  0.002
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Lawrenceville Hwy | ZJtU",
+        "formattedAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Lawrenceville Hwy | 045s",
+        "parentAddress":  "4155 Lawrenceville Hwy, Lilburn, GA 30047, USA",
+        "parentDistanceMiles":  0.010
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Chamblee Tucker Rd",
+        "formattedAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Chamblee Tucker Rd",
+        "parentAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "parentDistanceMiles":  0.002
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Lawrenceville Hwy | Wtvc",
+        "formattedAddress":  "4357 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Lawrenceville Hwy | gbAo",
+        "parentAddress":  "4357 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "parentDistanceMiles":  0.009
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Fuel Center | Lawrenceville Hwy | 18ME",
+        "formattedAddress":  "4317 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "reason":  "support_entity_collapsed:fuel center",
+        "parentName":  "Kroger | Lawrenceville Hwy | gbAo",
+        "parentAddress":  "4357 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "parentDistanceMiles":  0.108
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Chamblee Tucker Rd",
+        "formattedAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Chamblee Tucker Rd",
+        "parentAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "parentDistanceMiles":  0.056
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Fuel Center | Chamblee Tucker Rd",
+        "formattedAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "reason":  "support_entity_collapsed:fuel center",
+        "parentName":  "Kroger | Chamblee Tucker Rd",
+        "parentAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Money Services | Chamblee Tucker Rd",
+        "formattedAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "reason":  "support_entity_collapsed:money services",
+        "parentName":  "Kroger | Chamblee Tucker Rd",
+        "parentAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Lawrenceville Hwy | QW4Q",
+        "formattedAddress":  "4357 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Lawrenceville Hwy | gbAo",
+        "parentAddress":  "4357 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "parentDistanceMiles":  0.006
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Chamblee Tucker Rd",
+        "formattedAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Chamblee Tucker Rd",
+        "parentAddress":  "3559 Chamblee Tucker Rd, Atlanta, GA 30341, USA",
+        "parentDistanceMiles":  0.057
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Lawrenceville Hwy | N6xY",
+        "formattedAddress":  "4357 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Lawrenceville Hwy | gbAo",
+        "parentAddress":  "4357 Lawrenceville Hwy, Tucker, GA 30084, USA",
+        "parentDistanceMiles":  0.008
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | S Atlanta Rd SE",
+        "formattedAddress":  "4715 S Atlanta Rd SE, Smyrna, GA 30339, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | S Atlanta Rd SE",
+        "parentAddress":  "4715 S Atlanta Rd SE, Smyrna, GA 30339, USA",
+        "parentDistanceMiles":  0.001
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | S Atlanta Rd SE",
+        "formattedAddress":  "4715 S Atlanta Rd SE, Smyrna, GA 30339, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | S Atlanta Rd SE",
+        "parentAddress":  "4715 S Atlanta Rd SE, Smyrna, GA 30339, USA",
+        "parentDistanceMiles":  0.034
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Lavista Rd NE",
+        "formattedAddress":  "2205 Lavista Rd NE, Atlanta, GA 30329, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Lavista Rd NE",
+        "parentAddress":  "2205 Lavista Rd NE, Atlanta, GA 30329, USA",
+        "parentDistanceMiles":  0.004
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Briarcliff Rd NE",
+        "formattedAddress":  "1799 Briarcliff Rd NE, Atlanta, GA 30306, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Briarcliff Rd NE",
+        "parentAddress":  "1799 Briarcliff Rd NE, Atlanta, GA 30306, USA",
+        "parentDistanceMiles":  0.001
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Lavista Rd NE",
+        "formattedAddress":  "2205 Lavista Rd NE, Atlanta, GA 30329, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Lavista Rd NE",
+        "parentAddress":  "2205 Lavista Rd NE, Atlanta, GA 30329, USA",
+        "parentDistanceMiles":  0.004
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Lavista Rd NE",
+        "formattedAddress":  "2205 Lavista Rd NE, Atlanta, GA 30329, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Lavista Rd NE",
+        "parentAddress":  "2205 Lavista Rd NE, Atlanta, GA 30329, USA",
+        "parentDistanceMiles":  0.001
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Briarcliff Rd NE",
+        "formattedAddress":  "1799 Briarcliff Rd NE, Atlanta, GA 30306, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Briarcliff Rd NE",
+        "parentAddress":  "1799 Briarcliff Rd NE, Atlanta, GA 30306, USA",
+        "parentDistanceMiles":  0.018
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Howell Mill Rd NW",
+        "formattedAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Howell Mill Rd NW",
+        "parentAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "parentDistanceMiles":  0.005
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Howell Mill Rd NW",
+        "formattedAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Howell Mill Rd NW",
+        "parentAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "parentDistanceMiles":  0.002
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Howell Mill Rd NW",
+        "formattedAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Howell Mill Rd NW",
+        "parentAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "parentDistanceMiles":  0.002
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Money Services | Howell Mill Rd NW",
+        "formattedAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "reason":  "support_entity_collapsed:money services",
+        "parentName":  "Kroger | Howell Mill Rd NW",
+        "parentAddress":  "1715 Howell Mill Rd NW, Atlanta, GA 30318, USA",
+        "parentDistanceMiles":  0.015
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Ponce De Leon Ave NE",
+        "formattedAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Ponce De Leon Ave NE",
+        "parentAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Monroe Dr NE",
+        "formattedAddress":  "1700 Monroe Dr NE, Atlanta, GA 30324, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Monroe Dr NE",
+        "parentAddress":  "1700 Monroe Dr NE, Atlanta, GA 30324, USA",
+        "parentDistanceMiles":  0.001
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Ponce De Leon Ave NE",
+        "formattedAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Ponce De Leon Ave NE",
+        "parentAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "parentDistanceMiles":  0.007
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Monroe Dr NE",
+        "formattedAddress":  "1700 Monroe Dr NE, Atlanta, GA 30324, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Monroe Dr NE",
+        "parentAddress":  "1700 Monroe Dr NE, Atlanta, GA 30324, USA",
+        "parentDistanceMiles":  0.006
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Money Services | Ponce De Leon Ave NE",
+        "formattedAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "reason":  "support_entity_collapsed:money services",
+        "parentName":  "Kroger | Ponce De Leon Ave NE",
+        "parentAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "parentDistanceMiles":  0.006
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Monroe Dr NE",
+        "formattedAddress":  "1700 Monroe Dr NE, Atlanta, GA 30324, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Monroe Dr NE",
+        "parentAddress":  "1700 Monroe Dr NE, Atlanta, GA 30324, USA",
+        "parentDistanceMiles":  0.005
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Ponce De Leon Ave NE",
+        "formattedAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Ponce De Leon Ave NE",
+        "parentAddress":  "725 Ponce De Leon Ave NE, Atlanta, GA 30306, USA",
+        "parentDistanceMiles":  0.004
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | N Decatur Rd",
+        "formattedAddress":  "2875 N Decatur Rd, Decatur, GA 30033, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | N Decatur Rd",
+        "parentAddress":  "2875 N Decatur Rd, Decatur, GA 30033, USA",
+        "parentDistanceMiles":  0.014
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | N Decatur Rd",
+        "formattedAddress":  "2875 N Decatur Rd, Decatur, GA 30033, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | N Decatur Rd",
+        "parentAddress":  "2875 N Decatur Rd, Decatur, GA 30033, USA",
+        "parentDistanceMiles":  0.012
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | S Hairston Rd",
+        "formattedAddress":  "1232 S Hairston Rd, Stone Mountain, GA 30088, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | S Hairston Rd",
+        "parentAddress":  "1232 S Hairston Rd, Stone Mountain, GA 30088, USA",
+        "parentDistanceMiles":  0.005
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | S Hairston Rd",
+        "formattedAddress":  "1232 S Hairston Rd, Stone Mountain, GA 30088, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | S Hairston Rd",
+        "parentAddress":  "1232 S Hairston Rd, Stone Mountain, GA 30088, USA",
+        "parentDistanceMiles":  0.004
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | S Hairston Rd",
+        "formattedAddress":  "1232 S Hairston Rd, Stone Mountain, GA 30088, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | S Hairston Rd",
+        "parentAddress":  "1232 S Hairston Rd, Stone Mountain, GA 30088, USA",
+        "parentDistanceMiles":  0.005
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Cascade Ave SW",
+        "formattedAddress":  "590 Cascade Ave SW, Atlanta, GA 30310, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Cascade Ave SW",
+        "parentAddress":  "590 Cascade Ave SW, Atlanta, GA 30310, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Cascade Ave SW",
+        "formattedAddress":  "590 Cascade Ave SW, Atlanta, GA 30310, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Cascade Ave SW",
+        "parentAddress":  "590 Cascade Ave SW, Atlanta, GA 30310, USA",
+        "parentDistanceMiles":  0.005
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Glenwood Ave SE",
+        "formattedAddress":  "800 Glenwood Ave SE, Atlanta, GA 30316, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Glenwood Ave SE",
+        "parentAddress":  "800 Glenwood Ave SE, Atlanta, GA 30316, USA",
+        "parentDistanceMiles":  0.005
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Pharmacy | Moreland Ave SE",
+        "formattedAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Kroger | Moreland Ave SE",
+        "parentAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "parentDistanceMiles":  0.006
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Fuel Center | Moreland Ave SE",
+        "formattedAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "reason":  "support_entity_collapsed:fuel center",
+        "parentName":  "Kroger | Moreland Ave SE",
+        "parentAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "parentDistanceMiles":  0.082
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Deli | Moreland Ave SE",
+        "formattedAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Kroger | Moreland Ave SE",
+        "parentAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Kroger",
+        "name":  "Kroger Bakery | Moreland Ave SE",
+        "formattedAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Kroger | Moreland Ave SE",
+        "parentAddress":  "1160 Moreland Ave SE, Atlanta, GA 30316, USA",
+        "parentDistanceMiles":  0.015
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Sope Creek Crossing",
+        "formattedAddress":  "2900 Delk Rd SE #1150, Marietta, GA 30067, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Sope Creek Crossing",
+        "parentAddress":  "2900 Delk Rd SE #1150, Marietta, GA 30067, USA",
+        "parentDistanceMiles":  0.002
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Perimeter",
+        "formattedAddress":  "1100 Hammond Dr Ste 300, Sandy Springs, GA 30328, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Perimeter",
+        "parentAddress":  "1100 Hammond Dr Ste 300, Sandy Springs, GA 30328, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Abernathy Square Shopping Center",
+        "formattedAddress":  "6615 Roswell Rd, Sandy Springs, GA 30328, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Abernathy Square Shopping Center",
+        "parentAddress":  "6615 Roswell Rd, Sandy Springs, GA 30328, USA",
+        "parentDistanceMiles":  0.001
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Bakery",
+        "formattedAddress":  "6615 Roswell Rd NE, Sandy Springs, GA 30328, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Publix Super Market at Abernathy Square Shopping Center",
+        "parentAddress":  "6615 Roswell Rd, Sandy Springs, GA 30328, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Perimeter Marketplace",
+        "formattedAddress":  "500 Ashwood Pkwy, Dunwoody, GA 30338, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Perimeter Marketplace",
+        "parentAddress":  "500 Ashwood Pkwy, Dunwoody, GA 30338, USA",
+        "parentDistanceMiles":  0.007
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Cambridge Square Shopping Center",
+        "formattedAddress":  "2010 Johnson Ferry Rd NE, Brookhaven, GA 30319, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Cambridge Square Shopping Center",
+        "parentAddress":  "2010 Johnson Ferry Rd NE, Brookhaven, GA 30319, USA",
+        "parentDistanceMiles":  0.025
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Chamblee Plaza",
+        "formattedAddress":  "5534 Peachtree Blvd, Chamblee, GA 30341, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Chamblee Plaza",
+        "parentAddress":  "5534 Peachtree Blvd, Chamblee, GA 30341, USA",
+        "parentDistanceMiles":  0.061
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Town Brookhaven",
+        "formattedAddress":  "104 Town Blvd a100, Brookhaven, GA 30319, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Town Brookhaven",
+        "parentAddress":  "104 Town Blvd a100, Brookhaven, GA 30319, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Lilburn Corners Shopping Center",
+        "formattedAddress":  "375 Rockbridge Rd NW, Lilburn, GA 30047, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Lilburn Corners Shopping Center",
+        "parentAddress":  "375 Rockbridge Rd NW, Lilburn, GA 30047, USA",
+        "parentDistanceMiles":  0.004
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Providence Pavilion",
+        "formattedAddress":  "1025 Veterans Memorial Hwy SE Ste 400, Mableton, GA 30126, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Providence Pavilion",
+        "parentAddress":  "1025 Veterans Memorial Hwy SE Ste 400, Mableton, GA 30126, USA",
+        "parentDistanceMiles":  0.000
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Highland Station",
+        "formattedAddress":  "4480 S Cobb Dr SE, Smyrna, GA 30080, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Highland Station",
+        "parentAddress":  "4480 S Cobb Dr SE, Smyrna, GA 30080, USA",
+        "parentDistanceMiles":  0.006
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Howell Mill Village",
+        "formattedAddress":  "2020 Howell Mill Rd NW A, Atlanta, GA 30318, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Howell Mill Village",
+        "parentAddress":  "2020 Howell Mill Rd NW A, Atlanta, GA 30318, USA",
+        "parentDistanceMiles":  0.009
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at The Peach",
+        "formattedAddress":  "2900 Peachtree Rd NW, Atlanta, GA 30305, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at The Peach",
+        "parentAddress":  "2900 Peachtree Rd NW, Atlanta, GA 30305, USA",
+        "parentDistanceMiles":  0.004
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Buckhead Landing",
+        "formattedAddress":  "3300 Piedmont Rd NE Suite 16, Atlanta, GA 30305, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix",
+        "parentAddress":  "3330 Piedmont Rd NE, Atlanta, GA 30305, USA",
+        "parentDistanceMiles":  0.003
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Lenox Marketplace",
+        "formattedAddress":  "3535 Peachtree Rd NE, Atlanta, GA 30326, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Lenox Marketplace",
+        "parentAddress":  "3535 Peachtree Rd NE, Atlanta, GA 30326, USA",
+        "parentDistanceMiles":  0.069
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Cheshire Square",
+        "formattedAddress":  "2325 Cheshire Bridge Rd NE, Atlanta, GA 30324, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Cheshire Square",
+        "parentAddress":  "2325 Cheshire Bridge Rd NE, Atlanta, GA 30324, USA",
+        "parentDistanceMiles":  0.010
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Toco Hills Shopping Center",
+        "formattedAddress":  "2969 N Druid Hills Rd NE, Atlanta, GA 30329, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Toco Hills Shopping Center",
+        "parentAddress":  "2969 N Druid Hills Rd NE, Atlanta, GA 30329, USA",
+        "parentDistanceMiles":  0.089
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Briarcliff Village Shopping Center",
+        "formattedAddress":  "2162 Henderson Mill Rd, Atlanta, GA 30345, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Briarcliff Village Shopping Center",
+        "parentAddress":  "2162 Henderson Mill Rd, Atlanta, GA 30345, USA",
+        "parentDistanceMiles":  0.008
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Hugh Howell Village",
+        "formattedAddress":  "4650 Hugh Howell Rd Bldg 100 Bldg 100, Tucker, GA 30084, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Hugh Howell Village",
+        "parentAddress":  "4650 Hugh Howell Rd Bldg 100 Bldg 100, Tucker, GA 30084, USA",
+        "parentDistanceMiles":  0.034
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at The Plaza Midtown",
+        "formattedAddress":  "950 W Peachtree St NW, Atlanta, GA 30309, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at The Plaza Midtown",
+        "parentAddress":  "950 W Peachtree St NW, Atlanta, GA 30309, USA",
+        "parentDistanceMiles":  0.014
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Madison Yards",
+        "formattedAddress":  "905 Memorial Dr SE, Atlanta, GA 30316, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Madison Yards",
+        "parentAddress":  "905 Memorial Dr SE, Atlanta, GA 30316, USA",
+        "parentDistanceMiles":  0.007
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Pharmacy at Summerhill",
+        "formattedAddress":  "572 Hank Aaron Dr SE, Atlanta, GA 30315, USA",
+        "reason":  "support_entity_collapsed:pharmacy",
+        "parentName":  "Publix Super Market at Summerhill",
+        "parentAddress":  "572 Hank Aaron Dr SE, Atlanta, GA 30315, USA",
+        "parentDistanceMiles":  0.158
+    },
+    {
+        "query":  "Publix",
+        "name":  "Publix Deli",
+        "formattedAddress":  "905 Memorial Dr SE, Atlanta, GA 30316, USA",
+        "reason":  "support_entity_collapsed:deli",
+        "parentName":  "Publix Super Market at Madison Yards",
+        "parentAddress":  "905 Memorial Dr SE, Atlanta, GA 30316, USA",
+        "parentDistanceMiles":  0.011
+    },
+    {
+        "query":  "Whole Foods Market",
+        "name":  "Whole Foods Bakery | 14th St NW",
+        "formattedAddress":  "22 14th St NW, Atlanta, GA 30309, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Whole Foods Market | 14th St NW",
+        "parentAddress":  "22 14th St NW, Atlanta, GA 30309, USA",
+        "parentDistanceMiles":  0.048
+    },
+    {
+        "query":  "Whole Foods Market",
+        "name":  "Whole Foods Bakery | Ponce De Leon Ave NE",
+        "formattedAddress":  "650 Ponce De Leon Ave NE, Atlanta, GA 30308, USA",
+        "reason":  "support_entity_collapsed:bakery",
+        "parentName":  "Whole Foods Market | Ponce De Leon Ave NE",
+        "parentAddress":  "650 Ponce De Leon Ave NE, Atlanta, GA 30308, USA",
+        "parentDistanceMiles":  0.003
+    }
+]
