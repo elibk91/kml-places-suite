@@ -65,6 +65,38 @@ public static class NativeGeometryLibrary
         return ReadKmlSourceResult(status, resultPointer, errorPointer, "Native KML text read failed.");
     }
 
+    public static string BuildKmlDocument(NativeKmlDocumentPayload payload)
+    {
+        var payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
+        var status = kg_build_kml_document_json(payloadJson, out var resultPointer, out var errorPointer);
+        try
+        {
+            if (status != 0)
+            {
+                var error = errorPointer == IntPtr.Zero
+                    ? "Native KML document build failed."
+                    : Marshal.PtrToStringUTF8(errorPointer) ?? "Native KML document build failed.";
+                throw new InvalidOperationException(error);
+            }
+
+            return resultPointer == IntPtr.Zero
+                ? string.Empty
+                : Marshal.PtrToStringUTF8(resultPointer) ?? string.Empty;
+        }
+        finally
+        {
+            if (resultPointer != IntPtr.Zero)
+            {
+                kg_free_string(resultPointer);
+            }
+
+            if (errorPointer != IntPtr.Zero)
+            {
+                kg_free_string(errorPointer);
+            }
+        }
+    }
+
     private static NativeKmlSourceResult ReadKmlSourceResult(int status, IntPtr resultPointer, IntPtr errorPointer, string defaultError)
     {
         try
@@ -174,6 +206,12 @@ public static class NativeGeometryLibrary
         out IntPtr resultJsonUtf8,
         out IntPtr errorJsonUtf8);
 
+    [DllImport("kml_geometry_native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "kg_build_kml_document_json")]
+    private static extern int kg_build_kml_document_json(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string payloadJsonUtf8,
+        out IntPtr resultKmlUtf8,
+        out IntPtr errorJsonUtf8);
+
     [DllImport("kml_geometry_native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "kg_free_string")]
     private static extern void kg_free_string(IntPtr value);
 }
@@ -209,4 +247,11 @@ public sealed class NativePlacemarkResult
     public IReadOnlyList<LineStringInput> Lines { get; init; } = Array.Empty<LineStringInput>();
 
     public IReadOnlyList<PolygonInput> Polygons { get; init; } = Array.Empty<PolygonInput>();
+}
+
+public sealed class NativeKmlDocumentPayload
+{
+    public IReadOnlyList<PolygonInput> IntersectionPolygons { get; init; } = Array.Empty<PolygonInput>();
+
+    public IReadOnlyList<GeometryFeatureInput> SourceFeatures { get; init; } = Array.Empty<GeometryFeatureInput>();
 }

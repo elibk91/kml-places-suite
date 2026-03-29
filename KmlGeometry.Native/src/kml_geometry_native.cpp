@@ -10,6 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -19,7 +20,9 @@
 #include <nlohmann/json.hpp>
 #include <proj.h>
 #include <kml/base/file.h>
+#include <kml/base/color32.h>
 #include <kml/dom.h>
+#include <kml/dom/kml_funcs.h>
 #include <kml/engine/kml_file.h>
 
 namespace
@@ -29,6 +32,7 @@ namespace
     constexpr double kMetersPerMile = 1609.344;
     constexpr double kDegreesToRadians = 3.14159265358979323846 / 180.0;
     constexpr double kRadiansToDegrees = 180.0 / 3.14159265358979323846;
+    std::mutex g_libkml_mutex;
 
     struct LatLon
     {
@@ -79,6 +83,12 @@ namespace
         double min_longitude{};
         double max_longitude{};
         std::vector<OutputPolygon> polygons;
+    };
+
+    struct KmlDocumentPayload
+    {
+        std::vector<PolygonInput> intersection_polygons;
+        std::vector<FeatureInput> source_features;
     };
 
     struct ProjContextDeleter
@@ -217,6 +227,31 @@ namespace
         return feature;
     }
 
+    PolygonInput parse_polygon(const json& value)
+    {
+        PolygonInput polygon;
+        for (const auto& coordinate : value.at("outerRing"))
+        {
+            polygon.outer_ring.push_back(parse_coordinate(coordinate));
+        }
+
+        if (value.contains("innerRings"))
+        {
+            for (const auto& ring : value.at("innerRings"))
+            {
+                std::vector<LatLon> parsed_ring;
+                for (const auto& coordinate : ring)
+                {
+                    parsed_ring.push_back(parse_coordinate(coordinate));
+                }
+
+                polygon.inner_rings.push_back(std::move(parsed_ring));
+            }
+        }
+
+        return polygon;
+    }
+
     std::vector<FeatureInput> materialize_features(const json& request)
     {
         std::vector<FeatureInput> features;
@@ -253,6 +288,28 @@ namespace
         }
 
         return features;
+    }
+
+    KmlDocumentPayload parse_kml_document_payload(const json& value)
+    {
+        KmlDocumentPayload payload;
+        if (value.contains("intersectionPolygons"))
+        {
+            for (const auto& polygon : value.at("intersectionPolygons"))
+            {
+                payload.intersection_polygons.push_back(parse_polygon(polygon));
+            }
+        }
+
+        if (value.contains("sourceFeatures"))
+        {
+            for (const auto& feature : value.at("sourceFeatures"))
+            {
+                payload.source_features.push_back(parse_feature(feature));
+            }
+        }
+
+        return payload;
     }
 
     std::vector<LatLon> enumerate_coordinates(const std::vector<FeatureInput>& features)
@@ -454,6 +511,7 @@ namespace
 
     json parse_kml_text_json(const std::string& source_data)
     {
+        const std::lock_guard<std::mutex> lock(g_libkml_mutex);
         std::string errors;
         std::unique_ptr<kmlengine::KmlFile> kml_file(kmlengine::KmlFile::CreateFromParse(source_data, &errors));
         if (!kml_file)
@@ -484,6 +542,141 @@ namespace
     json read_kml_source_json(const std::string& path)
     {
         return parse_kml_text_json(read_file_to_string(path));
+    }
+
+    std::string escape_xml(const std::string& value)
+    {
+        std::string escaped;
+        escaped.reserve(value.size());
+        for (const auto character : value)
+        {
+            switch (character)
+            {
+            case '&': escaped += "&amp;"; break;
+            case '<': escaped += "&lt;"; break;
+            case '>': escaped += "&gt;"; break;
+            case '"': escaped += "&quot;"; break;
+            case '\'': escaped += "&apos;"; break;
+            default: escaped.push_back(character); break;
+            }
+        }
+        return escaped;
+    }
+
+    void append_coordinate_line(std::ostringstream& builder, const LatLon& coordinate)
+    {
+        builder
+            << coordinate.longitude
+            << ','
+            << coordinate.latitude
+            << ",0\n";
+    }
+
+    void append_polygon_xml(std::ostringstream& builder, const PolygonInput& polygon, const std::string& indent)
+    {
+        builder << indent << "<Polygon>\n";
+        builder << indent << "  <outerBoundaryIs><LinearRing><coordinates>\n";
+        for (const auto& point : polygon.outer_ring)
+        {
+            builder << indent << "    ";
+            append_coordinate_line(builder, point);
+        }
+        builder << indent << "  </coordinates></LinearRing></outerBoundaryIs>\n";
+        for (const auto& hole : polygon.inner_rings)
+        {
+            builder << indent << "  <innerBoundaryIs><LinearRing><coordinates>\n";
+            for (const auto& point : hole)
+            {
+                builder << indent << "    ";
+                append_coordinate_line(builder, point);
+            }
+            builder << indent << "  </coordinates></LinearRing></innerBoundaryIs>\n";
+        }
+        builder << indent << "</Polygon>\n";
+    }
+
+    std::string build_kml_document(const KmlDocumentPayload& payload)
+    {
+        const std::lock_guard<std::mutex> lock(g_libkml_mutex);
+        std::ostringstream builder;
+        builder << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+        builder << "<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n";
+        builder << "<Document>\n";
+        builder << "  <Folder><name>Intersection</name>\n";
+        for (size_t index = 0; index < payload.intersection_polygons.size(); ++index)
+        {
+            builder << "    <Placemark>\n";
+            builder << "      <name>Intersection " << (index + 1) << "</name>\n";
+            append_polygon_xml(builder, payload.intersection_polygons[index], "      ");
+            builder << "    </Placemark>\n";
+        }
+        builder << "  </Folder>\n";
+        builder << "  <Folder><name>Source Features</name>\n";
+
+        std::map<std::string, std::vector<const FeatureInput*>> features_by_category;
+        for (const auto& feature : payload.source_features)
+        {
+            features_by_category[feature.category].push_back(&feature);
+        }
+
+        for (const auto& [category, features] : features_by_category)
+        {
+            builder << "    <Folder><name>" << escape_xml(category) << "</name>\n";
+            for (const auto* feature : features)
+            {
+                if (feature->geometry_type == "point")
+                {
+                    for (const auto& point : feature->points)
+                    {
+                        builder << "      <Placemark>\n";
+                        builder << "        <name>" << escape_xml(feature->label) << "</name>\n";
+                        builder << "        <Point><coordinates>";
+                        builder << point.longitude << "," << point.latitude << ",0</coordinates></Point>\n";
+                        builder << "      </Placemark>\n";
+                    }
+                }
+                else if (feature->geometry_type == "line" || feature->geometry_type == "linestring")
+                {
+                    for (const auto& line : feature->lines)
+                    {
+                        builder << "      <Placemark>\n";
+                        builder << "        <name>" << escape_xml(feature->label) << "</name>\n";
+                        builder << "        <LineString><coordinates>\n";
+                        for (const auto& point : line.coordinates)
+                        {
+                            builder << "          ";
+                            append_coordinate_line(builder, point);
+                        }
+                        builder << "        </coordinates></LineString>\n";
+                        builder << "      </Placemark>\n";
+                    }
+                }
+                else if (feature->geometry_type == "polygon")
+                {
+                    for (const auto& polygon : feature->polygons)
+                    {
+                        builder << "      <Placemark>\n";
+                        builder << "        <name>" << escape_xml(feature->label) << "</name>\n";
+                        append_polygon_xml(builder, polygon, "        ");
+                        builder << "      </Placemark>\n";
+                    }
+                }
+            }
+            builder << "    </Folder>\n";
+        }
+
+        builder << "  </Folder>\n";
+        builder << "</Document>\n";
+        builder << "</kml>\n";
+
+        std::string errors;
+        auto element = kmldom::Parse(builder.str(), &errors);
+        if (!element)
+        {
+            fail(errors.empty() ? "Could not parse generated KML document." : errors);
+        }
+
+        return kmldom::SerializePretty(element);
     }
 
     class Projection
@@ -1164,6 +1357,34 @@ extern "C"
 
             const auto result = parse_kml_text_json(kml_text_utf8);
             *result_json_utf8 = copy_utf8(result.dump());
+            return 0;
+        }
+        catch (const std::exception& exception)
+        {
+            *error_json_utf8 = copy_utf8(exception.what());
+            return -1;
+        }
+    }
+
+    int kg_build_kml_document_json(const char* payload_json_utf8, char** result_kml_utf8, char** error_json_utf8)
+    {
+        if (result_kml_utf8 == nullptr || error_json_utf8 == nullptr)
+        {
+            return -1;
+        }
+
+        *result_kml_utf8 = nullptr;
+        *error_json_utf8 = nullptr;
+
+        try
+        {
+            if (payload_json_utf8 == nullptr)
+            {
+                fail("KML payload is required.");
+            }
+
+            const auto payload = parse_kml_document_payload(json::parse(payload_json_utf8));
+            *result_kml_utf8 = copy_utf8(build_kml_document(payload));
             return 0;
         }
         catch (const std::exception& exception)

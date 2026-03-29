@@ -29,5 +29,10 @@ extern "C"
         char** result_json_utf8,
         char** error_json_utf8);
 
+    KML_GEOMETRY_NATIVE_API int kg_build_kml_document_json(
+        const char* payload_json_utf8,
+        char** result_kml_utf8,
+        char** error_json_utf8);
+
     KML_GEOMETRY_NATIVE_API void kg_free_string(char* value);
 }

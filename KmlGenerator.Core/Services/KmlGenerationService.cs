@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Security;
-using System.Text;
 using KmlGenerator.Core.Exceptions;
 using KmlGenerator.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -36,7 +34,7 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
         return new GenerateKmlResult
         {
-            Kml = BuildKml(nativeResult.Polygons, categories),
+            Kml = BuildKml(nativeResult.Polygons, features),
             IntersectionPolygonCount = nativeResult.IntersectionPolygonCount,
             CoveredCellCount = nativeResult.CoveredCellCount,
             FeatureCount = nativeResult.FeatureCount,
@@ -569,147 +567,13 @@ public sealed class KmlGenerationService : IKmlGenerationService
 
     private string BuildKml(
         IReadOnlyList<PolygonInput> polygons,
-        IReadOnlyDictionary<string, CategoryFeatureSet> categories)
+        IReadOnlyList<GeometryFeatureInput> features)
     {
-        var builder = new StringBuilder();
-        builder.AppendLine("""<?xml version="1.0" encoding="UTF-8"?>""");
-        builder.AppendLine("""<kml xmlns="http://www.opengis.net/kml/2.2">""");
-        builder.AppendLine("<Document>");
-        builder.AppendLine("""  <Style id="intersection"><LineStyle><color>ff0000ff</color><width>2</width></LineStyle><PolyStyle><color>550000ff</color></PolyStyle></Style>""");
-        builder.AppendLine("""  <Style id="source-point"><IconStyle><scale>0.6</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle></Style>""");
-        builder.AppendLine("""  <Style id="source-line"><LineStyle><color>ff00aaee</color><width>2</width></LineStyle></Style>""");
-        builder.AppendLine("""  <Style id="source-polygon"><LineStyle><color>ffddaa00</color><width>2</width></LineStyle><PolyStyle><color>33ddaa00</color></PolyStyle></Style>""");
-        builder.AppendLine("  <Folder><name>Intersection</name>");
-        var polygonIndex = 1;
-        foreach (var polygon in polygons)
+        return NativeGeometryLibrary.BuildKmlDocument(new NativeKmlDocumentPayload
         {
-            WriteIntersectionPlacemark(builder, polygon, polygonIndex++);
-        }
-
-        builder.AppendLine("  </Folder>");
-        builder.AppendLine("  <Folder><name>Source Features</name>");
-        foreach (var category in categories.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            builder.Append("    <Folder><name>");
-            builder.Append(SecurityElement.Escape(category.Key));
-            builder.AppendLine("</name>");
-            foreach (var feature in category.Value.Features.OrderBy(feature => feature.Label, StringComparer.OrdinalIgnoreCase))
-            {
-                WriteFeaturePlacemark(builder, feature);
-            }
-
-            builder.AppendLine("    </Folder>");
-        }
-
-        builder.AppendLine("  </Folder>");
-        builder.AppendLine("</Document>");
-        builder.AppendLine("</kml>");
-        return builder.ToString();
-    }
-
-    private static void WriteIntersectionPlacemark(StringBuilder builder, PolygonInput polygon, int polygonIndex)
-    {
-        builder.AppendLine("    <Placemark>");
-        builder.Append("      <name>Intersection ");
-        builder.Append(polygonIndex);
-        builder.AppendLine("</name>");
-        builder.AppendLine("      <styleUrl>#intersection</styleUrl>");
-        builder.AppendLine("      <Polygon>");
-        builder.AppendLine("        <outerBoundaryIs><LinearRing><coordinates>");
-        foreach (var point in polygon.OuterRing)
-        {
-            AppendCoordinate(builder, point.Longitude, point.Latitude);
-        }
-        builder.AppendLine("        </coordinates></LinearRing></outerBoundaryIs>");
-        foreach (var hole in polygon.InnerRings)
-        {
-            builder.AppendLine("        <innerBoundaryIs><LinearRing><coordinates>");
-            foreach (var point in hole)
-            {
-                AppendCoordinate(builder, point.Longitude, point.Latitude);
-            }
-            builder.AppendLine("        </coordinates></LinearRing></innerBoundaryIs>");
-        }
-        builder.AppendLine("      </Polygon>");
-        builder.AppendLine("    </Placemark>");
-    }
-
-    private static void WriteFeaturePlacemark(StringBuilder builder, ProjectedFeature feature)
-    {
-        switch (feature.GeometryType)
-        {
-            case "point":
-                foreach (var point in feature.Points)
-                {
-                    builder.AppendLine("      <Placemark>");
-                    builder.Append("        <name>");
-                    builder.Append(SecurityElement.Escape(feature.Label));
-                    builder.AppendLine("</name>");
-                    builder.AppendLine("        <styleUrl>#source-point</styleUrl>");
-                    builder.Append("        <Point><coordinates>");
-                    builder.Append(point.Longitude.ToString("G17", CultureInfo.InvariantCulture));
-                    builder.Append(',');
-                    builder.Append(point.Latitude.ToString("G17", CultureInfo.InvariantCulture));
-                    builder.AppendLine(",0</coordinates></Point>");
-                    builder.AppendLine("      </Placemark>");
-                }
-                break;
-
-            case "linestring":
-                foreach (var line in feature.Lines)
-                {
-                    builder.AppendLine("      <Placemark>");
-                    builder.Append("        <name>");
-                    builder.Append(SecurityElement.Escape(feature.Label));
-                    builder.AppendLine("</name>");
-                    builder.AppendLine("        <styleUrl>#source-line</styleUrl>");
-                    builder.AppendLine("        <LineString><coordinates>");
-                    foreach (var point in line)
-                    {
-                        AppendCoordinate(builder, point.Longitude, point.Latitude);
-                    }
-                    builder.AppendLine("        </coordinates></LineString>");
-                    builder.AppendLine("      </Placemark>");
-                }
-                break;
-
-            case "polygon":
-                foreach (var polygon in feature.Polygons)
-                {
-                    builder.AppendLine("      <Placemark>");
-                    builder.Append("        <name>");
-                    builder.Append(SecurityElement.Escape(feature.Label));
-                    builder.AppendLine("</name>");
-                    builder.AppendLine("        <styleUrl>#source-polygon</styleUrl>");
-                    builder.AppendLine("        <Polygon>");
-                    builder.AppendLine("          <outerBoundaryIs><LinearRing><coordinates>");
-                    foreach (var point in polygon.OuterRing)
-                    {
-                        AppendCoordinate(builder, point.Longitude, point.Latitude);
-                    }
-                    builder.AppendLine("          </coordinates></LinearRing></outerBoundaryIs>");
-                    foreach (var hole in polygon.InnerRings)
-                    {
-                        builder.AppendLine("          <innerBoundaryIs><LinearRing><coordinates>");
-                        foreach (var point in hole)
-                        {
-                            AppendCoordinate(builder, point.Longitude, point.Latitude);
-                        }
-                        builder.AppendLine("          </coordinates></LinearRing></innerBoundaryIs>");
-                    }
-                    builder.AppendLine("        </Polygon>");
-                    builder.AppendLine("      </Placemark>");
-                }
-                break;
-        }
-    }
-
-    private static void AppendCoordinate(StringBuilder builder, double longitude, double latitude)
-    {
-        builder.Append(longitude.ToString("G17", CultureInfo.InvariantCulture));
-        builder.Append(',');
-        builder.Append(latitude.ToString("G17", CultureInfo.InvariantCulture));
-        builder.AppendLine(",0");
+            IntersectionPolygons = polygons,
+            SourceFeatures = features
+        });
     }
 
     private sealed record ReferenceFrame(double ReferenceLatitude, double ReferenceLongitude, double FeetPerDegreeLongitude);
