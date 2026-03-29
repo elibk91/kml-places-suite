@@ -29,7 +29,7 @@ public sealed class KmlController : ControllerBase
         try
         {
             var result = _kmlGenerationService.Generate(request);
-            _logger.LogInformation("Generated JSON KML response with {BoundaryPointCount} emitted overlap points", result.BoundaryPointCount);
+            _logger.LogInformation("Generated JSON KML response with {IntersectionPolygonCount} intersection polygons", result.IntersectionPolygonCount);
             return Ok(result);
         }
         catch (KmlValidationException exception)
@@ -47,7 +47,7 @@ public sealed class KmlController : ControllerBase
         try
         {
             var result = _kmlGenerationService.Generate(request);
-            _logger.LogInformation("Generated downloadable KML file with {BoundaryPointCount} emitted overlap points", result.BoundaryPointCount);
+            _logger.LogInformation("Generated downloadable KML file with {IntersectionPolygonCount} intersection polygons", result.IntersectionPolygonCount);
             return File(
                 fileContents: System.Text.Encoding.UTF8.GetBytes(result.Kml),
                 contentType: "application/vnd.google-earth.kml+xml",

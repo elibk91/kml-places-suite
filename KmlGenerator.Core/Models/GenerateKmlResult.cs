@@ -7,9 +7,11 @@ public sealed class GenerateKmlResult
 {
     public string Kml { get; init; } = string.Empty;
 
-    public int BoundaryPointCount { get; init; }
+    public int IntersectionPolygonCount { get; init; }
 
-    public int ValidPointCount { get; init; }
+    public int CoveredCellCount { get; init; }
+
+    public int FeatureCount { get; init; }
 
     public BoundingBox Bounds { get; init; } = new();
 }

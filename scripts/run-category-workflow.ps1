@@ -18,6 +18,8 @@ param(
 
     [string]$ArcFeatureOutputPath,
 
+    [string]$ArcGeometryOutputPath,
+
     [string]$ArcOriginalGeometryKmlOutputPath,
 
     [string[]]$ArcMartaInputPaths,
@@ -108,6 +110,10 @@ if (-not $ArcTrailOutputPath) {
 
 if (-not $ArcFeatureOutputPath) {
     $ArcFeatureOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-arc-features.jsonl"
+}
+
+if (-not $ArcGeometryOutputPath) {
+    $ArcGeometryOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-arc-geometry.request.json"
 }
 
 if (-not $ArcOriginalGeometryKmlOutputPath) {
@@ -339,6 +345,11 @@ function Invoke-ArcParkTrailExtraction {
         $arguments += (Resolve-DisplayPath -Path $ArcFeatureOutputPath)
     }
 
+    if ($ArcGeometryOutputPath) {
+        $arguments += "--geometry-output"
+        $arguments += (Resolve-DisplayPath -Path $ArcGeometryOutputPath)
+    }
+
     if ($ArcOriginalGeometryKmlOutputPath) {
         $arguments += "--original-geometry-kml-output"
         $arguments += (Resolve-DisplayPath -Path $ArcOriginalGeometryKmlOutputPath)
@@ -348,6 +359,7 @@ function Invoke-ArcParkTrailExtraction {
     if ($ArcParkOutputPath) { Ensure-ParentDirectory -Path $ArcParkOutputPath }
     if ($ArcTrailOutputPath) { Ensure-ParentDirectory -Path $ArcTrailOutputPath }
     if ($ArcFeatureOutputPath) { Ensure-ParentDirectory -Path $ArcFeatureOutputPath }
+    if ($ArcGeometryOutputPath) { Ensure-ParentDirectory -Path $ArcGeometryOutputPath }
     if ($ArcOriginalGeometryKmlOutputPath) { Ensure-ParentDirectory -Path $ArcOriginalGeometryKmlOutputPath }
     Invoke-DotnetCommand -Description "Extracting ARC park/trail geometry" -Arguments $arguments -FailureMessage "ARC geometry extractor failed."
     Assert-PathExists -Path $ArcOutputPath -FailureMessage "ARC park/trail output was not produced."
@@ -360,7 +372,9 @@ function Invoke-LocationAssembly {
         [string]$ProjectPath,
 
         [Parameter(Mandatory = $true)]
-        [string[]]$Inputs
+        [string[]]$Inputs,
+
+        [string[]]$GeometryInputs
     )
 
     Write-FunctionTrace -Name $MyInvocation.MyCommand.Name -Arguments @{
@@ -371,12 +385,19 @@ function Invoke-LocationAssembly {
     foreach ($inputPath in $Inputs) {
         Assert-PathExists -Path $inputPath -FailureMessage "Assembler input '$inputPath' does not exist."
     }
+    foreach ($geometryInputPath in $GeometryInputs) {
+        Assert-PathExists -Path $geometryInputPath -FailureMessage "Assembler geometry input '$geometryInputPath' does not exist."
+    }
     Assert-PathExists -Path $CategoryConfigPath -FailureMessage "Category config '$CategoryConfigPath' does not exist."
 
     $arguments = @("run", "--project", (Resolve-DisplayPath -Path $ProjectPath), "--no-build", "--")
     foreach ($inputPath in $Inputs) {
         $arguments += "--input"
         $arguments += (Resolve-DisplayPath -Path $inputPath)
+    }
+    foreach ($geometryInputPath in $GeometryInputs) {
+        $arguments += "--geometry-input"
+        $arguments += (Resolve-DisplayPath -Path $geometryInputPath)
     }
 
     $arguments += "--output"
@@ -474,6 +495,7 @@ try {
 
     Write-ParameterTrace -Values @{
         ArcFeatureOutputPath = $ArcFeatureOutputPath
+        ArcGeometryOutputPath = $ArcGeometryOutputPath
         ArcMartaOutputPath = $ArcMartaOutputPath
         ArcOutputPath = $ArcOutputPath
         ArcParkOutputPath = $ArcParkOutputPath
@@ -500,10 +522,12 @@ try {
     $assemblerInputPaths = @(
         (Join-Path $MasterListOutputDirectory "gyms-master.jsonl"),
         (Join-Path $MasterListOutputDirectory "groceries-master.jsonl"),
-        $ArcMartaOutputPath,
-        $parkTrailInputPath
+        $ArcMartaOutputPath
     )
-    Invoke-LocationAssembly -ProjectPath $assemblerProjectPath -Inputs $assemblerInputPaths
+    $assemblerGeometryInputPaths = @(
+        $ArcGeometryOutputPath
+    )
+    Invoke-LocationAssembly -ProjectPath $assemblerProjectPath -Inputs $assemblerInputPaths -GeometryInputs $assemblerGeometryInputPaths
     Invoke-KmlGeneration -ProjectPath $kmlGeneratorProjectPath
     Invoke-TileGeneration -ProjectPath $kmlTilerProjectPath
 

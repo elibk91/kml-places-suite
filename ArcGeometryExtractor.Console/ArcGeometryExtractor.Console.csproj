@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\KmlGenerator.Core\KmlGenerator.Core.csproj" />
     <ProjectReference Include="..\KmlSuite.Shared\KmlSuite.Shared.csproj" />
     <ProjectReference Include="..\PlacesGatherer.Console\PlacesGatherer.Console.csproj" />
   </ItemGroup>

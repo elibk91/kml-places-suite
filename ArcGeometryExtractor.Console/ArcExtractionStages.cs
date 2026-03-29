@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using KmlGenerator.Core.Models;
 using PlacesGatherer.Console.Models;
 
 internal interface IArcSourceReader
@@ -37,6 +38,7 @@ internal interface IArcOutputWriter
         IReadOnlyList<NormalizedPlaceRecord> parkPoints,
         IReadOnlyList<NormalizedPlaceRecord> trailPoints,
         IReadOnlyList<ArcGeometryExtractorApp.ArcFeatureRecord> features,
+        IReadOnlyList<GeometryFeatureInput> geometryFeatures,
         IReadOnlyList<ArcGeometryExtractorApp.ParkPolygonRecord> parkPolygons,
         IReadOnlyList<ArcGeometryExtractorApp.TrailLineRecord> trailLines);
 }
@@ -49,6 +51,7 @@ internal sealed record ArcExtractionStageResult(
     IReadOnlyList<NormalizedPlaceRecord> DirectPointRecords,
     IReadOnlyList<ArcGeometryExtractorApp.CollapsibleEntity> CollapsibleEntities,
     IReadOnlyList<ArcGeometryExtractorApp.ArcFeatureRecord> Features,
+    IReadOnlyList<GeometryFeatureInput> GeometryFeatures,
     IReadOnlyList<ArcGeometryExtractorApp.ParkPolygonRecord> ParkPolygons,
     IReadOnlyList<ArcGeometryExtractorApp.TrailLineRecord> TrailLines);
 

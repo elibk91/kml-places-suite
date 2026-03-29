@@ -54,7 +54,7 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
-            await error.WriteLineAsync("Usage: location-assembler --input places-1.jsonl --input places-2.jsonl --output request.json");
+            await error.WriteLineAsync("Usage: location-assembler --input places-1.jsonl --input places-2.jsonl [--geometry-input arc-geometry.json] --output request.json");
             return 1;
         }
 
@@ -62,6 +62,7 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         {
             var categorySelection = await LoadCategorySelectionAsync(parsed.Value.CategoryConfigPath);
             var distinctLocations = new HashSet<LocationInput>(LocationInputComparer.Instance);
+            var distinctFeatures = new HashSet<GeometryFeatureInput>(GeometryFeatureInputComparer.Instance);
             var inputRecordCount = 0;
 
             foreach (var inputPath in parsed.Value.InputPaths)
@@ -70,10 +71,17 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                 await foreach (var line in ReadNonEmptyLinesAsync(inputPath))
                 {
                     var record = DeserializeRecord(line);
-                    var location = MapToLocationInput(record, categorySelection);
-                    if (location is not null)
+                    var feature = MapToPointFeature(record, categorySelection);
+                    if (feature is not null)
                     {
-                        distinctLocations.Add(location);
+                        distinctFeatures.Add(feature);
+                        distinctLocations.Add(new LocationInput
+                        {
+                            Latitude = record.Latitude,
+                            Longitude = record.Longitude,
+                            Category = feature.Category,
+                            Label = feature.Label
+                        });
                     }
 
                     fileRecordCount++;
@@ -83,11 +91,31 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                 _logger.LogInformation("Read {FileRecordCount} normalized records from {InputPath}", fileRecordCount, inputPath);
             }
 
-            var locations = distinctLocations.ToArray();
-            _logger.LogInformation("Deduplicated {InputRecordCount} records into {UniqueLocationCount} unique locations", inputRecordCount, locations.Length);
+            foreach (var geometryInputPath in parsed.Value.GeometryInputPaths)
+            {
+                await using var geometryStream = File.OpenRead(geometryInputPath);
+                var geometryRequest = await JsonSerializer.DeserializeAsync<GenerateKmlRequest>(geometryStream, JsonOptions)
+                    ?? throw new InvalidOperationException("The geometry input file did not contain a valid JSON payload.");
+
+                foreach (var feature in geometryRequest.Features)
+                {
+                    var normalizedFeature = NormalizeFeature(feature, categorySelection);
+                    if (normalizedFeature is not null)
+                    {
+                        distinctFeatures.Add(normalizedFeature);
+                    }
+                }
+
+                _logger.LogInformation("Read {FeatureCount} geometry features from {InputPath}", geometryRequest.Features.Count, geometryInputPath);
+            }
+
+            var features = distinctFeatures.ToArray();
+            _logger.LogInformation("Deduplicated {InputRecordCount} point records plus geometry inputs into {FeatureCount} unique features", inputRecordCount, features.Length);
 
             var request = new GenerateKmlRequest
             {
+                Locations = distinctLocations.ToArray(),
+                Features = features,
                 RadiusMiles = categorySelection.DefaultRadiusMiles,
                 CategoryRadiusMiles = categorySelection.CategoryRadiusMiles
             };
@@ -95,11 +123,11 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
             await using var outputStream = File.Create(parsed.Value.OutputPath);
             await using (var writer = new Utf8JsonWriter(outputStream, new JsonWriterOptions { Indented = true }))
             {
-                WriteRequest(writer, locations, request);
+                WriteRequest(writer, request);
                 await writer.FlushAsync();
             }
-            _logger.LogInformation("Assembled {RecordCount} records into {LocationCount} unique locations at {OutputPath}", inputRecordCount, locations.Length, parsed.Value.OutputPath);
-            await output.WriteLineAsync($"Saved {locations.Length} unique points to {parsed.Value.OutputPath}");
+            _logger.LogInformation("Assembled geometry request with {FeatureCount} unique features at {OutputPath}", features.Length, parsed.Value.OutputPath);
+            await output.WriteLineAsync($"Saved {features.Length} unique features to {parsed.Value.OutputPath}");
             return 0;
         }
         catch (Exception exception)
@@ -124,24 +152,9 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         return CategorySelection.FromConfig(config);
     }
 
-    private static void WriteRequest(Utf8JsonWriter writer, IReadOnlyList<LocationInput> locations, GenerateKmlRequest request)
+    private static void WriteRequest(Utf8JsonWriter writer, GenerateKmlRequest request)
     {
-        writer.WriteStartObject();
-
-        writer.WritePropertyName("locations");
-        writer.WriteStartArray();
-        foreach (var location in locations)
-        {
-            JsonSerializer.Serialize(writer, location, JsonOptions);
-        }
-        writer.WriteEndArray();
-
-        writer.WriteNumber("radiusMiles", request.RadiusMiles);
-
-        writer.WritePropertyName("categoryRadiusMiles");
-        JsonSerializer.Serialize(writer, request.CategoryRadiusMiles, JsonOptions);
-
-        writer.WriteEndObject();
+        JsonSerializer.Serialize(writer, request, JsonOptions);
     }
 
     private static async IAsyncEnumerable<string> ReadNonEmptyLinesAsync(string inputPath)
@@ -228,7 +241,7 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         return values;
     }
 
-    private static LocationInput? MapToLocationInput(NormalizedPlaceRecord record, CategorySelection selection)
+    private static GeometryFeatureInput? MapToPointFeature(NormalizedPlaceRecord record, CategorySelection selection)
     {
         var category = selection.Normalize(record.Category);
         if (category is null)
@@ -236,18 +249,45 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
             return null;
         }
 
-        return new LocationInput
+        return new GeometryFeatureInput
         {
-            Latitude = record.Latitude,
-            Longitude = record.Longitude,
             Category = category,
-            Label = record.Name
+            Label = record.Name,
+            GeometryType = "point",
+            Points =
+            [
+                new CoordinateInput
+                {
+                    Latitude = record.Latitude,
+                    Longitude = record.Longitude
+                }
+            ]
         };
     }
 
-    private (IReadOnlyList<string> InputPaths, string OutputPath, string? CategoryConfigPath)? ParseArguments(IReadOnlyList<string> args)
+    private static GeometryFeatureInput? NormalizeFeature(GeometryFeatureInput feature, CategorySelection selection)
+    {
+        var category = selection.Normalize(feature.Category);
+        if (category is null)
+        {
+            return null;
+        }
+
+        return new GeometryFeatureInput
+        {
+            Category = category,
+            Label = feature.Label,
+            GeometryType = feature.GeometryType,
+            Points = feature.Points,
+            Lines = feature.Lines,
+            Polygons = feature.Polygons
+        };
+    }
+
+    private (IReadOnlyList<string> InputPaths, IReadOnlyList<string> GeometryInputPaths, string OutputPath, string? CategoryConfigPath)? ParseArguments(IReadOnlyList<string> args)
     {
         var inputPaths = new List<string>();
+        var geometryInputPaths = new List<string>();
         string? outputPath = null;
         string? categoryConfigPath = null;
 
@@ -258,6 +298,9 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                 case "--input" when index + 1 < args.Count:
                     inputPaths.Add(args[++index]);
                     break;
+                case "--geometry-input" when index + 1 < args.Count:
+                    geometryInputPaths.Add(args[++index]);
+                    break;
                 case "--output" when index + 1 < args.Count:
                     outputPath = args[++index];
                     break;
@@ -267,9 +310,9 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
             }
         }
 
-        return inputPaths.Count == 0 || string.IsNullOrWhiteSpace(outputPath)
+        return (inputPaths.Count == 0 && geometryInputPaths.Count == 0) || string.IsNullOrWhiteSpace(outputPath)
             ? null
-            : (inputPaths, outputPath, categoryConfigPath);
+            : (inputPaths, geometryInputPaths, outputPath, categoryConfigPath);
     }
 
     private sealed class CategorySelection
@@ -368,6 +411,39 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         public IReadOnlyList<string> SourceCategories { get; init; } = Array.Empty<string>();
     }
 
+    private sealed class GeometryFeatureInputComparer : IEqualityComparer<GeometryFeatureInput>
+    {
+        public static GeometryFeatureInputComparer Instance { get; } = new();
+
+        public bool Equals(GeometryFeatureInput? x, GeometryFeatureInput? y)
+        {
+            if (x is null || y is null)
+            {
+                return x is null && y is null;
+            }
+
+            if (!x.Category.Equals(y.Category, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(x.Label, y.Label, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(x.GeometryType, y.GeometryType, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var xJson = JsonSerializer.Serialize(x, JsonOptions);
+            var yJson = JsonSerializer.Serialize(y, JsonOptions);
+            return string.Equals(xJson, yJson, StringComparison.Ordinal);
+        }
+
+        public int GetHashCode(GeometryFeatureInput obj)
+        {
+            return HashCode.Combine(
+                obj.Category.ToUpperInvariant(),
+                obj.Label?.ToUpperInvariant(),
+                obj.GeometryType.ToUpperInvariant(),
+                JsonSerializer.Serialize(obj, JsonOptions));
+        }
+    }
+
     private sealed class LocationInputComparer : IEqualityComparer<LocationInput>
     {
         public static LocationInputComparer Instance { get; } = new();
@@ -385,14 +461,12 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                    && string.Equals(x.Label, y.Label, StringComparison.OrdinalIgnoreCase);
         }
 
-        public int GetHashCode(LocationInput obj)
-        {
-            return HashCode.Combine(
+        public int GetHashCode(LocationInput obj) =>
+            HashCode.Combine(
                 obj.Category.ToUpperInvariant(),
                 obj.Latitude,
                 obj.Longitude,
                 obj.Label?.ToUpperInvariant());
-        }
     }
 }
 

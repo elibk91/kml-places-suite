@@ -72,15 +72,15 @@ public sealed class KmlTilerRunner : IKmlTilerApp
                 throw new InvalidOperationException("The request file did not contain a valid JSON payload.");
             }
 
-            var requiredCategories = request.Locations
-                .Select(location => location.Category.Trim())
+            var requestFeatures = MaterializeFeatures(request);
+            var requiredCategories = requestFeatures
+                .Select(feature => feature.Category.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            _logger.LogInformation("Loaded tile request with {LocationCount} locations across {CategoryCount} categories", request.Locations.Count, requiredCategories.Length);
+            _logger.LogInformation("Loaded tile request with {FeatureCount} features across {CategoryCount} categories", requestFeatures.Count, requiredCategories.Length);
 
             var tileRows = BuildTileRows(parsed.North, parsed.South, parsed.LatitudeStep);
             var tileColumns = BuildTileColumns(parsed.West, parsed.East, parsed.LongitudeStep);
-            var tileBuckets = BucketLocations(request.Locations, tileRows.Count, tileColumns.Count, parsed);
             var summaries = new List<TileSummary>();
 
             for (var row = 0; row < tileRows.Count; row++)
@@ -92,12 +92,9 @@ public sealed class KmlTilerRunner : IKmlTilerApp
                 {
                     var tileWest = tileColumns[column].West;
                     var tileEast = tileColumns[column].East;
-                    var tileLocations = tileBuckets.TryGetValue((row, column), out var bucket)
-                        ? bucket.ToArray()
-                        : Array.Empty<LocationInput>();
-
-                    var categoriesPresent = tileLocations
-                        .Select(location => location.Category.Trim())
+                    var tileFeatures = SelectTileFeatures(requestFeatures, request, tileNorth, tileSouth, tileWest, tileEast);
+                    var categoriesPresent = tileFeatures
+                        .Select(feature => feature.Category.Trim())
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToArray();
 
@@ -111,7 +108,7 @@ public sealed class KmlTilerRunner : IKmlTilerApp
                         South = tileSouth,
                         West = tileWest,
                         East = tileEast,
-                        PointCount = tileLocations.Length,
+                        PointCount = tileFeatures.Count,
                         CategoriesPresent = categoriesPresent
                     };
 
@@ -124,16 +121,17 @@ public sealed class KmlTilerRunner : IKmlTilerApp
 
                     var tileRequest = new GenerateKmlRequest
                     {
-                        Locations = tileLocations,
+                        Features = tileFeatures,
                         Step = request.Step,
                         RadiusMiles = request.RadiusMiles,
-                        PaddingDegrees = request.PaddingDegrees
+                        PaddingDegrees = request.PaddingDegrees,
+                        CategoryRadiusMiles = request.CategoryRadiusMiles
                     };
 
                     var result = _service.Generate(tileRequest);
-                    summary.BoundaryPointCount = result.BoundaryPointCount;
+                    summary.BoundaryPointCount = result.IntersectionPolygonCount;
 
-                    if (result.BoundaryPointCount <= 0)
+                    if (result.IntersectionPolygonCount <= 0)
                     {
                         summary.Status = "empty_outline";
                         summaries.Add(summary);
@@ -169,33 +167,23 @@ public sealed class KmlTilerRunner : IKmlTilerApp
         }
     }
 
-    private Dictionary<(int Row, int Column), List<LocationInput>> BucketLocations(
-        IReadOnlyList<LocationInput> locations,
-        int rowCount,
-        int columnCount,
-        TilerArguments parsed)
+    private static IReadOnlyList<GeometryFeatureInput> MaterializeFeatures(GenerateKmlRequest request)
     {
-        var buckets = new Dictionary<(int Row, int Column), List<LocationInput>>();
-
-        foreach (var location in locations)
+        if (request.Features.Count > 0)
         {
-            if (!TryGetTileRow(location.Latitude, parsed.North, parsed.South, parsed.LatitudeStep, rowCount, out var row) ||
-                !TryGetTileColumn(location.Longitude, parsed.West, parsed.East, parsed.LongitudeStep, columnCount, out var column))
-            {
-                continue;
-            }
-
-            var key = (row, column);
-            if (!buckets.TryGetValue(key, out var bucket))
-            {
-                bucket = [];
-                buckets[key] = bucket;
-            }
-
-            bucket.Add(location);
+            return request.Features;
         }
 
-        return buckets;
+        return request.Locations.Select(location => new GeometryFeatureInput
+        {
+            Category = location.Category,
+            Label = location.Label,
+            GeometryType = "point",
+            Points =
+            [
+                new CoordinateInput { Latitude = location.Latitude, Longitude = location.Longitude }
+            ]
+        }).ToArray();
     }
 
     private static List<TileRow> BuildTileRows(double north, double south, double latitudeStep)
@@ -218,6 +206,78 @@ public sealed class KmlTilerRunner : IKmlTilerApp
         }
 
         return columns;
+    }
+
+    private static IReadOnlyList<GeometryFeatureInput> SelectTileFeatures(
+        IReadOnlyList<GeometryFeatureInput> features,
+        GenerateKmlRequest request,
+        double tileNorth,
+        double tileSouth,
+        double tileWest,
+        double tileEast)
+    {
+        var selected = new List<GeometryFeatureInput>();
+        foreach (var feature in features)
+        {
+            var radiusMiles = request.CategoryRadiusMiles.TryGetValue(feature.Category, out var configuredRadius)
+                ? configuredRadius
+                : request.RadiusMiles;
+            var padding = radiusMiles / 69d;
+            var bounds = ComputeFeatureBounds(feature, padding);
+            if (bounds.MaxLatitude < tileSouth
+                || bounds.MinLatitude > tileNorth
+                || bounds.MaxLongitude < tileWest
+                || bounds.MinLongitude > tileEast)
+            {
+                continue;
+            }
+
+            selected.Add(feature);
+        }
+
+        return selected;
+    }
+
+    private static TileFeatureBounds ComputeFeatureBounds(GeometryFeatureInput feature, double padding)
+    {
+        var coordinates = EnumerateCoordinates(feature).ToArray();
+        return new TileFeatureBounds(
+            coordinates.Min(point => point.Latitude) - padding,
+            coordinates.Max(point => point.Latitude) + padding,
+            coordinates.Min(point => point.Longitude) - padding,
+            coordinates.Max(point => point.Longitude) + padding);
+    }
+
+    private static IEnumerable<CoordinateInput> EnumerateCoordinates(GeometryFeatureInput feature)
+    {
+        foreach (var point in feature.Points)
+        {
+            yield return point;
+        }
+
+        foreach (var line in feature.Lines)
+        {
+            foreach (var coordinate in line.Coordinates)
+            {
+                yield return coordinate;
+            }
+        }
+
+        foreach (var polygon in feature.Polygons)
+        {
+            foreach (var coordinate in polygon.OuterRing)
+            {
+                yield return coordinate;
+            }
+
+            foreach (var ring in polygon.InnerRings)
+            {
+                foreach (var coordinate in ring)
+                {
+                    yield return coordinate;
+                }
+            }
+        }
     }
 
     private static bool TryGetTileRow(
@@ -351,6 +411,8 @@ public sealed class KmlTilerRunner : IKmlTilerApp
     private sealed record TileRow(double North, double South);
 
     private sealed record TileColumn(double West, double East);
+
+    private sealed record TileFeatureBounds(double MinLatitude, double MaxLatitude, double MinLongitude, double MaxLongitude);
 
     private sealed class TileSummary
     {

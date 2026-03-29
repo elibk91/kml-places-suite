@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using KmlGenerator.Core.Models;
 using KmlSuite.Shared.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -73,7 +74,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         var parsed = ParseArguments(args);
         if (parsed is null)
         {
-            await error.WriteLineAsync("Usage: arc-geometry-extractor --input parks.kml --input trails.kmz --output points.jsonl [--park-output parks.jsonl] [--trail-output trails.jsonl] [--feature-output features.jsonl] [--park-outline-kml-output parks.kml]");
+            await error.WriteLineAsync("Usage: arc-geometry-extractor --input parks.kml --input trails.kmz --output points.jsonl [--park-output parks.jsonl] [--trail-output trails.jsonl] [--feature-output features.jsonl] [--geometry-output geometry.json] [--park-outline-kml-output parks.kml]");
             return 1;
         }
 
@@ -111,7 +112,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 .Concat(collapsed.FeatureRecords)
                 .ToList();
 
-            await _outputWriter.WriteAsync(parsed, allPoints, parkPoints, trailPoints, allFeatures, extracted.ParkPolygons, extracted.TrailLines);
+            await _outputWriter.WriteAsync(parsed, allPoints, parkPoints, trailPoints, allFeatures, extracted.GeometryFeatures, extracted.ParkPolygons, extracted.TrailLines);
 
             await output.WriteLineAsync($"Saved {allPoints.Count} ARC-derived points to {parsed.OutputPath}");
             return 0;
@@ -175,6 +176,67 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 
         return records;
     }
+
+    private static GeometryFeatureInput BuildPointGeometryFeature(
+        string featureName,
+        string category,
+        IReadOnlyList<GeoPoint> points) =>
+        new()
+        {
+            Category = category,
+            Label = featureName,
+            GeometryType = "point",
+            Points = points.Select(point => new CoordinateInput
+            {
+                Latitude = point.Latitude,
+                Longitude = point.Longitude
+            }).ToArray()
+        };
+
+    private static GeometryFeatureInput BuildLineGeometryFeature(
+        string featureName,
+        string category,
+        IReadOnlyList<IReadOnlyList<GeoPoint>> lines) =>
+        new()
+        {
+            Category = category,
+            Label = featureName,
+            GeometryType = "linestring",
+            Lines = lines.Select(line => new LineStringInput
+            {
+                Coordinates = line.Select(point => new CoordinateInput
+                {
+                    Latitude = point.Latitude,
+                    Longitude = point.Longitude
+                }).ToArray()
+            }).ToArray()
+        };
+
+    private static GeometryFeatureInput BuildPolygonGeometryFeature(
+        string featureName,
+        string category,
+        IReadOnlyList<IReadOnlyList<IReadOnlyList<GeoPoint>>> polygons) =>
+        new()
+        {
+            Category = category,
+            Label = featureName,
+            GeometryType = "polygon",
+            Polygons = polygons.Select(polygon => new PolygonInput
+            {
+                OuterRing = polygon[0].Select(point => new CoordinateInput
+                {
+                    Latitude = point.Latitude,
+                    Longitude = point.Longitude
+                }).ToArray(),
+                InnerRings = polygon.Skip(1)
+                    .Select(ring => (IReadOnlyList<CoordinateInput>)ring.Select(point => new CoordinateInput
+                    {
+                        Latitude = point.Latitude,
+                        Longitude = point.Longitude
+                    }).ToArray())
+                    .ToArray()
+            }).ToArray()
+        };
 
     private static CollapsibleEntity BuildCollapsibleEntity(
         string rawEntityId,
@@ -1227,6 +1289,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         string? parkOutputPath = null;
         string? trailOutputPath = null;
         string? featureOutputPath = null;
+        string? geometryOutputPath = null;
         string? originalGeometryKmlOutputPath = null;
         var minimumParkSquareFeet = DefaultMinimumParkSquareFeet;
         var minimumTrailMiles = DefaultMinimumTrailMiles;
@@ -1254,6 +1317,9 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                     break;
                 case "--feature-output" when index + 1 < args.Count:
                     featureOutputPath = args[++index];
+                    break;
+                case "--geometry-output" when index + 1 < args.Count:
+                    geometryOutputPath = args[++index];
                     break;
                 case "--original-geometry-kml-output" when index + 1 < args.Count:
                     originalGeometryKmlOutputPath = args[++index];
@@ -1290,6 +1356,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 parkOutputPath,
                 trailOutputPath,
                 featureOutputPath,
+                geometryOutputPath,
                 originalGeometryKmlOutputPath,
                 minimumParkSquareFeet,
                 minimumTrailMiles,
@@ -1359,6 +1426,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         string? ParkOutputPath,
         string? TrailOutputPath,
         string? FeatureOutputPath,
+        string? GeometryOutputPath,
         string? OriginalGeometryKmlOutputPath,
         double MinimumParkSquareFeet,
         double MinimumTrailMiles,
@@ -1510,6 +1578,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
             var directPointRecords = new List<NormalizedPlaceRecord>();
             var collapsibleEntities = new List<CollapsibleEntity>();
             var features = new List<ArcFeatureRecord>();
+            var geometryFeatures = new List<GeometryFeatureInput>();
             var parkPolygons = new List<ParkPolygonRecord>();
             var trailLines = new List<TrailLineRecord>();
             var rawEntityIndex = 0;
@@ -1543,6 +1612,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                             }
 
                             parkPolygons.Add(new ParkPolygonRecord(sourceDocument.SourceFileName, featureName, metadata, polygonPoints));
+                            geometryFeatures.Add(BuildPolygonGeometryFeature(featureName, "park", polygonPoints));
                             var outlinePoints = polygonPoints.SelectMany(rings => DensifyPolygonBoundaryPoints(rings, pointSpacingFeet)).ToArray();
                             if (outlinePoints.Length > 0)
                             {
@@ -1583,6 +1653,11 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                                 }
 
                                 features.Add(BuildFeatureRecord(sourceDocument.SourceFileName, featureName, pointCategory, "point", metadata, pointValues.Length));
+                                if (!pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase)
+                                    && !pointCategory.Equals("trail", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    geometryFeatures.Add(BuildPointGeometryFeature(featureName, pointCategory, pointValues));
+                                }
                                 var records = BuildPointRecords(pointValues, sourceDocument.SourceFileName, featureName, pointCategory, "point", metadata, placemarkIndex);
                                 if (pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase) || pointCategory.Equals("trail", StringComparison.OrdinalIgnoreCase))
                                 {
@@ -1637,6 +1712,8 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 
                     features.Add(BuildFeatureRecord(sourceDocument.SourceFileName, featureName, category, "line", metadata, linePoints.Length));
                     trailLines.Add(new TrailLineRecord(sourceDocument.SourceFileName, featureName, metadata, linePoints));
+                    var geometryLines = lineStrings.Select(line => ParseLineStringPoints(line).ToArray()).Where(points => points.Length > 1).ToArray();
+                    geometryFeatures.Add(BuildLineGeometryFeature(featureName, category, geometryLines));
                     var lineRecords = BuildPointRecords(linePoints, sourceDocument.SourceFileName, featureName, category, "line", metadata, placemarkIndex);
                     collapsibleEntities.Add(BuildCollapsibleEntity(
                         $"arc-entity-{rawEntityIndex++}",
@@ -1657,7 +1734,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 }
             }
 
-            return new ArcExtractionStageResult(directPointRecords, collapsibleEntities, features, parkPolygons, trailLines);
+            return new ArcExtractionStageResult(directPointRecords, collapsibleEntities, features, geometryFeatures, parkPolygons, trailLines);
         }
     }
 
@@ -1689,6 +1766,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
             IReadOnlyList<NormalizedPlaceRecord> parkPoints,
             IReadOnlyList<NormalizedPlaceRecord> trailPoints,
             IReadOnlyList<ArcFeatureRecord> features,
+            IReadOnlyList<GeometryFeatureInput> geometryFeatures,
             IReadOnlyList<ParkPolygonRecord> parkPolygons,
             IReadOnlyList<TrailLineRecord> trailLines)
         {
@@ -1707,6 +1785,14 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
             if (!string.IsNullOrWhiteSpace(arguments.FeatureOutputPath))
             {
                 await WriteJsonLinesAsync(arguments.FeatureOutputPath, features);
+            }
+
+            if (!string.IsNullOrWhiteSpace(arguments.GeometryOutputPath))
+            {
+                await File.WriteAllTextAsync(arguments.GeometryOutputPath, JsonSerializer.Serialize(new GenerateKmlRequest
+                {
+                    Features = geometryFeatures
+                }, JsonOptions));
             }
 
             if (!string.IsNullOrWhiteSpace(arguments.OriginalGeometryKmlOutputPath))

@@ -52,7 +52,7 @@ public sealed class KmlTilerRunnerTests
     }
 
     [Fact]
-    public async Task RunAsync_AssignsBoundaryPoints_ToSameTilesAsCurrentRules()
+    public async Task RunAsync_AssignsGeometryFeatures_ToTilesUsingBufferedBounds()
     {
         var tempDirectory = Directory.CreateTempSubdirectory();
         var inputPath = Path.Combine(tempDirectory.FullName, "request.json");
@@ -95,8 +95,8 @@ public sealed class KmlTilerRunnerTests
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.NotNull(summary);
-        Assert.Contains(summary, tile => tile.Row == 0 && tile.Column == 0 && tile.PointCount == 1);
-        Assert.Contains(summary, tile => tile.Row == 1 && tile.Column == 1 && tile.PointCount == 1);
+        Assert.Contains(summary, tile => tile.Row == 0 && tile.Column == 0 && tile.PointCount == 2);
+        Assert.Contains(summary, tile => tile.Row == 1 && tile.Column == 1 && tile.PointCount == 2);
         Assert.Contains(summary, tile => tile.Row == 1 && tile.Column == 1 && tile.Status == "written");
         Assert.Contains(summary, tile => tile.Row == 0 && tile.Column == 1 && tile.PointCount == 1);
     }
