@@ -5,7 +5,7 @@ using KmlGenerator.Core.Models;
 
 namespace KmlGenerator.Core.Services;
 
-internal static class NativeGeometryLibrary
+public static class NativeGeometryLibrary
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -38,6 +38,51 @@ internal static class NativeGeometryLibrary
 
             return JsonSerializer.Deserialize<NativeIntersectionResult>(resultJson, JsonOptions)
                 ?? throw new InvalidOperationException("Native geometry generation returned an empty payload.");
+        }
+        finally
+        {
+            if (resultPointer != IntPtr.Zero)
+            {
+                kg_free_string(resultPointer);
+            }
+
+            if (errorPointer != IntPtr.Zero)
+            {
+                kg_free_string(errorPointer);
+            }
+        }
+    }
+
+    public static NativeKmlSourceResult ReadKmlSource(string sourcePath)
+    {
+        var status = kg_read_kml_source_json(sourcePath, out var resultPointer, out var errorPointer);
+        return ReadKmlSourceResult(status, resultPointer, errorPointer, "Native KML source read failed.");
+    }
+
+    public static NativeKmlSourceResult ReadKmlText(string kmlText)
+    {
+        var status = kg_read_kml_text_json(kmlText, out var resultPointer, out var errorPointer);
+        return ReadKmlSourceResult(status, resultPointer, errorPointer, "Native KML text read failed.");
+    }
+
+    private static NativeKmlSourceResult ReadKmlSourceResult(int status, IntPtr resultPointer, IntPtr errorPointer, string defaultError)
+    {
+        try
+        {
+            if (status != 0)
+            {
+                var error = errorPointer == IntPtr.Zero
+                    ? defaultError
+                    : Marshal.PtrToStringUTF8(errorPointer) ?? defaultError;
+                throw new InvalidOperationException(error);
+            }
+
+            var resultJson = resultPointer == IntPtr.Zero
+                ? "{}"
+                : Marshal.PtrToStringUTF8(resultPointer) ?? "{}";
+
+            return JsonSerializer.Deserialize<NativeKmlSourceResult>(resultJson, JsonOptions)
+                ?? throw new InvalidOperationException("Native KML source reader returned an empty payload.");
         }
         finally
         {
@@ -117,11 +162,23 @@ internal static class NativeGeometryLibrary
         out IntPtr resultJsonUtf8,
         out IntPtr errorJsonUtf8);
 
+    [DllImport("kml_geometry_native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "kg_read_kml_source_json")]
+    private static extern int kg_read_kml_source_json(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string sourcePathUtf8,
+        out IntPtr resultJsonUtf8,
+        out IntPtr errorJsonUtf8);
+
+    [DllImport("kml_geometry_native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "kg_read_kml_text_json")]
+    private static extern int kg_read_kml_text_json(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string kmlTextUtf8,
+        out IntPtr resultJsonUtf8,
+        out IntPtr errorJsonUtf8);
+
     [DllImport("kml_geometry_native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "kg_free_string")]
     private static extern void kg_free_string(IntPtr value);
 }
 
-internal sealed class NativeIntersectionResult
+public sealed class NativeIntersectionResult
 {
     public int IntersectionPolygonCount { get; init; }
 
@@ -130,6 +187,26 @@ internal sealed class NativeIntersectionResult
     public int CoveredCellCount { get; init; }
 
     public BoundingBox Bounds { get; init; } = new();
+
+    public IReadOnlyList<PolygonInput> Polygons { get; init; } = Array.Empty<PolygonInput>();
+}
+
+public sealed class NativeKmlSourceResult
+{
+    public IReadOnlyList<NativePlacemarkResult> Placemarks { get; init; } = Array.Empty<NativePlacemarkResult>();
+}
+
+public sealed class NativePlacemarkResult
+{
+    public string Name { get; init; } = string.Empty;
+
+    public string Description { get; init; } = string.Empty;
+
+    public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyList<CoordinateInput> Points { get; init; } = Array.Empty<CoordinateInput>();
+
+    public IReadOnlyList<LineStringInput> Lines { get; init; } = Array.Empty<LineStringInput>();
 
     public IReadOnlyList<PolygonInput> Polygons { get; init; } = Array.Empty<PolygonInput>();
 }

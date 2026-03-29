@@ -9,6 +9,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -17,6 +18,9 @@
 #include <geos_c.h>
 #include <nlohmann/json.hpp>
 #include <proj.h>
+#include <kml/base/file.h>
+#include <kml/dom.h>
+#include <kml/engine/kml_file.h>
 
 namespace
 {
@@ -273,6 +277,213 @@ namespace
         }
 
         return coordinates;
+    }
+
+    std::string read_file_to_string(const std::string& path)
+    {
+        std::ifstream stream(path, std::ios::binary);
+        if (!stream)
+        {
+            fail("Could not open KML/KMZ source file: " + path);
+        }
+
+        std::ostringstream buffer;
+        buffer << stream.rdbuf();
+        return buffer.str();
+    }
+
+    void append_vec3_ring(const kmldom::CoordinatesPtr& coordinates, json& output_ring)
+    {
+        if (!coordinates)
+        {
+            return;
+        }
+
+        for (size_t index = 0; index < coordinates->get_coordinates_array_size(); ++index)
+        {
+            const auto coordinate = coordinates->get_coordinates_array_at(index);
+            output_ring.push_back({
+                { "latitude", coordinate.get_latitude() },
+                { "longitude", coordinate.get_longitude() }
+            });
+        }
+    }
+
+    void append_geometry_json(const kmldom::GeometryPtr& geometry, json& placemark_json)
+    {
+        if (!geometry)
+        {
+            return;
+        }
+
+        if (const auto point = kmldom::AsPoint(geometry))
+        {
+            if (point->has_coordinates())
+            {
+                append_vec3_ring(point->get_coordinates(), placemark_json["points"]);
+            }
+
+            return;
+        }
+
+        if (const auto line = kmldom::AsLineString(geometry))
+        {
+            json line_json = { { "coordinates", json::array() } };
+            append_vec3_ring(line->get_coordinates(), line_json["coordinates"]);
+            if (!line_json["coordinates"].empty())
+            {
+                placemark_json["lines"].push_back(std::move(line_json));
+            }
+
+            return;
+        }
+
+        if (const auto polygon = kmldom::AsPolygon(geometry))
+        {
+            json polygon_json =
+            {
+                { "outerRing", json::array() },
+                { "innerRings", json::array() }
+            };
+
+            if (polygon->has_outerboundaryis() && polygon->get_outerboundaryis()->has_linearring())
+            {
+                append_vec3_ring(polygon->get_outerboundaryis()->get_linearring()->get_coordinates(), polygon_json["outerRing"]);
+            }
+
+            for (size_t index = 0; index < polygon->get_innerboundaryis_array_size(); ++index)
+            {
+                const auto& inner_boundary = polygon->get_innerboundaryis_array_at(index);
+                if (!inner_boundary || !inner_boundary->has_linearring())
+                {
+                    continue;
+                }
+
+                json inner_ring = json::array();
+                append_vec3_ring(inner_boundary->get_linearring()->get_coordinates(), inner_ring);
+                if (!inner_ring.empty())
+                {
+                    polygon_json["innerRings"].push_back(std::move(inner_ring));
+                }
+            }
+
+            if (!polygon_json["outerRing"].empty())
+            {
+                placemark_json["polygons"].push_back(std::move(polygon_json));
+            }
+
+            return;
+        }
+
+        if (const auto multi_geometry = kmldom::AsMultiGeometry(geometry))
+        {
+            for (size_t index = 0; index < multi_geometry->get_geometry_array_size(); ++index)
+            {
+                append_geometry_json(multi_geometry->get_geometry_array_at(index), placemark_json);
+            }
+        }
+    }
+
+    void append_extended_data_json(const kmldom::ExtendedDataPtr& extended_data, json& metadata)
+    {
+        if (!extended_data)
+        {
+            return;
+        }
+
+        for (size_t index = 0; index < extended_data->get_data_array_size(); ++index)
+        {
+            const auto& data = extended_data->get_data_array_at(index);
+            if (data && data->has_name() && data->has_value())
+            {
+                metadata[data->get_name()] = data->get_value();
+            }
+        }
+
+        for (size_t schema_index = 0; schema_index < extended_data->get_schemadata_array_size(); ++schema_index)
+        {
+            const auto& schema_data = extended_data->get_schemadata_array_at(schema_index);
+            if (!schema_data)
+            {
+                continue;
+            }
+
+            for (size_t value_index = 0; value_index < schema_data->get_simpledata_array_size(); ++value_index)
+            {
+                const auto& simple_data = schema_data->get_simpledata_array_at(value_index);
+                if (simple_data && simple_data->has_name() && simple_data->has_text())
+                {
+                    metadata[simple_data->get_name()] = simple_data->get_text();
+                }
+            }
+        }
+    }
+
+    void collect_placemarks(const kmldom::FeaturePtr& feature, json& placemarks)
+    {
+        if (!feature)
+        {
+            return;
+        }
+
+        if (const auto container = kmldom::AsContainer(feature))
+        {
+            for (size_t index = 0; index < container->get_feature_array_size(); ++index)
+            {
+                collect_placemarks(container->get_feature_array_at(index), placemarks);
+            }
+        }
+
+        if (const auto placemark = kmldom::AsPlacemark(feature))
+        {
+            json placemark_json =
+            {
+                { "name", placemark->has_name() ? placemark->get_name() : "" },
+                { "description", placemark->has_description() ? placemark->get_description() : "" },
+                { "metadata", json::object() },
+                { "points", json::array() },
+                { "lines", json::array() },
+                { "polygons", json::array() }
+            };
+
+            append_extended_data_json(placemark->get_extendeddata(), placemark_json["metadata"]);
+            append_geometry_json(placemark->get_geometry(), placemark_json);
+            placemarks.push_back(std::move(placemark_json));
+        }
+    }
+
+    json parse_kml_text_json(const std::string& source_data)
+    {
+        std::string errors;
+        std::unique_ptr<kmlengine::KmlFile> kml_file(kmlengine::KmlFile::CreateFromParse(source_data, &errors));
+        if (!kml_file)
+        {
+            fail(errors.empty() ? "Could not parse KML source text." : errors);
+        }
+
+        auto root = kml_file->get_root();
+        if (!root)
+        {
+            fail("Parsed KML/KMZ source file did not contain a root element.");
+        }
+
+        auto kml_root = kmldom::AsKml(root);
+        if (!kml_root || !kml_root->has_feature())
+        {
+            fail("Parsed KML/KMZ source file did not contain a root feature.");
+        }
+
+        json result =
+        {
+            { "placemarks", json::array() }
+        };
+        collect_placemarks(kml_root->get_feature(), result["placemarks"]);
+        return result;
+    }
+
+    json read_kml_source_json(const std::string& path)
+    {
+        return parse_kml_text_json(read_file_to_string(path));
     }
 
     class Projection
@@ -897,6 +1108,62 @@ extern "C"
 
             const auto result = generate_native_result(features, request);
             *result_json_utf8 = copy_utf8(serialize_result(result).dump());
+            return 0;
+        }
+        catch (const std::exception& exception)
+        {
+            *error_json_utf8 = copy_utf8(exception.what());
+            return -1;
+        }
+    }
+
+    int kg_read_kml_source_json(const char* source_path_utf8, char** result_json_utf8, char** error_json_utf8)
+    {
+        if (result_json_utf8 == nullptr || error_json_utf8 == nullptr)
+        {
+            return -1;
+        }
+
+        *result_json_utf8 = nullptr;
+        *error_json_utf8 = nullptr;
+
+        try
+        {
+            if (source_path_utf8 == nullptr)
+            {
+                fail("Source path is required.");
+            }
+
+            const auto result = read_kml_source_json(source_path_utf8);
+            *result_json_utf8 = copy_utf8(result.dump());
+            return 0;
+        }
+        catch (const std::exception& exception)
+        {
+            *error_json_utf8 = copy_utf8(exception.what());
+            return -1;
+        }
+    }
+
+    int kg_read_kml_text_json(const char* kml_text_utf8, char** result_json_utf8, char** error_json_utf8)
+    {
+        if (result_json_utf8 == nullptr || error_json_utf8 == nullptr)
+        {
+            return -1;
+        }
+
+        *result_json_utf8 = nullptr;
+        *error_json_utf8 = nullptr;
+
+        try
+        {
+            if (kml_text_utf8 == nullptr)
+            {
+                fail("KML text is required.");
+            }
+
+            const auto result = parse_kml_text_json(kml_text_utf8);
+            *result_json_utf8 = copy_utf8(result.dump());
             return 0;
         }
         catch (const std::exception& exception)

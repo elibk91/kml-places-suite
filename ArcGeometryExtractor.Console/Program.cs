@@ -6,8 +6,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
 using KmlGenerator.Core.Models;
+using KmlGenerator.Core.Services;
 using KmlSuite.Shared.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -594,10 +594,10 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         return $"{fileInfo.Length}:{Convert.ToHexString(bytes)}";
     }
 
-    private static IReadOnlyDictionary<string, string> ReadMetadata(XElement placemark)
+    private static IReadOnlyDictionary<string, string> ReadMetadata(ArcSourcePlacemark placemark)
     {
-        var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var description = ReadTrimmedChildValue(placemark, "description");
+        var metadata = new Dictionary<string, string>(placemark.Metadata, StringComparer.OrdinalIgnoreCase);
+        var description = placemark.Description.Trim();
         if (!string.IsNullOrWhiteSpace(description))
         {
             foreach (Match match in MetadataRowPattern.Matches(description))
@@ -611,31 +611,8 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
             }
         }
 
-        foreach (var dataElement in placemark.Descendants().Where(element => element.Name.LocalName.Equals("Data", StringComparison.Ordinal)))
-        {
-            var key = dataElement.Attribute("name")?.Value?.Trim();
-            var value = dataElement.Descendants().FirstOrDefault(child => child.Name.LocalName.Equals("value", StringComparison.Ordinal))?.Value?.Trim();
-            if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
-            {
-                metadata[key] = value;
-            }
-        }
-
-        foreach (var simpleDataElement in placemark.Descendants().Where(element => element.Name.LocalName.Equals("SimpleData", StringComparison.Ordinal)))
-        {
-            var key = simpleDataElement.Attribute("name")?.Value?.Trim();
-            var value = simpleDataElement.Value.Trim();
-            if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
-            {
-                metadata[key] = value;
-            }
-        }
-
         return metadata;
     }
-
-    private static string ReadTrimmedChildValue(XElement parent, string localName) =>
-        parent.Elements().FirstOrDefault(element => element.Name.LocalName.Equals(localName, StringComparison.Ordinal))?.Value.Trim() ?? string.Empty;
 
     private static string ResolveFeatureName(string directName, IReadOnlyDictionary<string, string> metadata, string sourceFileName)
     {
@@ -657,65 +634,6 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
         return sourceFileName;
     }
 
-    private static IReadOnlyList<IReadOnlyList<GeoPoint>> ParsePolygonRings(XElement polygon)
-    {
-        var outerRing = polygon
-            .Descendants()
-            .FirstOrDefault(element =>
-                element.Name.LocalName.Equals("outerBoundaryIs", StringComparison.Ordinal));
-
-        var rings = new List<IReadOnlyList<GeoPoint>>();
-        if (outerRing is not null)
-        {
-            var ringPoints = outerRing
-                .Descendants()
-                .Where(element => element.Name.LocalName.Equals("coordinates", StringComparison.Ordinal))
-                .SelectMany(ParseCoordinates)
-                .ToArray();
-
-            if (ringPoints.Length > 0)
-            {
-                rings.Add(ringPoints);
-            }
-        }
-
-        return rings;
-    }
-
-    private static IEnumerable<GeoPoint> ParsePointValues(XElement point) =>
-        point
-            .Descendants()
-            .Where(element => element.Name.LocalName.Equals("coordinates", StringComparison.Ordinal))
-            .SelectMany(ParseCoordinates);
-
-    private static IEnumerable<GeoPoint> ParseLineStringPoints(XElement lineString) =>
-        lineString
-            .Descendants()
-            .Where(element => element.Name.LocalName.Equals("coordinates", StringComparison.Ordinal))
-            .SelectMany(ParseCoordinates);
-
-    private static IEnumerable<GeoPoint> ParseCoordinates(XElement coordinatesElement)
-    {
-        var text = coordinatesElement.Value;
-        var segments = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var segment in segments)
-        {
-            var parts = segment.Split(',', StringSplitOptions.TrimEntries);
-            if (parts.Length < 2)
-            {
-                continue;
-            }
-
-            if (!double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var latitude)
-                || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var longitude))
-            {
-                continue;
-            }
-
-            yield return new GeoPoint(latitude, longitude);
-        }
-    }
 
     private static string? DetermineLineCategory(string sourceFileName, string featureName, IReadOnlyDictionary<string, string> metadata)
     {
@@ -1553,10 +1471,26 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 }
 
                 var sourceFileName = Path.GetFileName(inputPath);
-                var document = XDocument.Parse(await ReadSanitizedKmlAsync(inputPath), LoadOptions.None);
-                var placemarks = document
-                    .Descendants()
-                    .Where(element => element.Name.LocalName.Equals("Placemark", StringComparison.Ordinal))
+                var sanitizedKml = await ReadSanitizedKmlAsync(inputPath);
+                var nativeResult = NativeGeometryLibrary.ReadKmlText(sanitizedKml);
+                var placemarks = nativeResult.Placemarks
+                    .Select(placemark => new ArcSourcePlacemark(
+                        placemark.Name,
+                        placemark.Description,
+                        placemark.Metadata,
+                        placemark.Points,
+                        placemark.Lines.Select(line => (IReadOnlyList<CoordinateInput>)line.Coordinates.ToArray()).ToArray(),
+                        placemark.Polygons.Select(polygon =>
+                        {
+                            var rings = new List<IReadOnlyList<CoordinateInput>>();
+                            rings.Add(polygon.OuterRing.ToArray());
+                            foreach (var innerRing in polygon.InnerRings)
+                            {
+                                rings.Add(innerRing.ToArray());
+                            }
+
+                            return (IReadOnlyList<IReadOnlyList<CoordinateInput>>)rings;
+                        }).ToArray()))
                     .ToArray();
                 sourceDocuments.Add(new ArcSourceDocument(sourceFileName, placemarks));
             }
@@ -1589,15 +1523,16 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                 {
                     var placemark = sourceDocument.Placemarks[placemarkIndex];
                     var metadata = ReadMetadata(placemark);
-                    var featureName = ResolveFeatureName(ReadTrimmedChildValue(placemark, "name"), metadata, sourceDocument.SourceFileName);
+                    var featureName = ResolveFeatureName(placemark.Name, metadata, sourceDocument.SourceFileName);
 
-                    var lineStrings = placemark.Descendants().Where(element => element.Name.LocalName.Equals("LineString", StringComparison.Ordinal)).ToArray();
-                    var polygons = placemark.Descendants().Where(element => element.Name.LocalName.Equals("Polygon", StringComparison.Ordinal)).ToArray();
-                    var points = placemark.Descendants().Where(element => element.Name.LocalName.Equals("Point", StringComparison.Ordinal)).ToArray();
-
-                    if (polygons.Length > 0)
+                    if (placemark.Polygons.Count > 0)
                     {
-                        var polygonPoints = polygons.Select(ParsePolygonRings).Where(rings => rings.Count > 0).ToArray();
+                        var polygonPoints = placemark.Polygons
+                            .Where(rings => rings.Count > 0)
+                            .Select(rings => (IReadOnlyList<IReadOnlyList<GeoPoint>>)rings
+                                .Select(ring => (IReadOnlyList<GeoPoint>)ring.Select(point => new GeoPoint(point.Latitude, point.Longitude)).ToArray())
+                                .ToArray())
+                            .ToArray();
                         if (polygonPoints.Length > 0)
                         {
                             var polygonAreaSquareFeet = polygonPoints.Sum(ComputePolygonAreaSquareFeet);
@@ -1638,12 +1573,14 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                         }
                     }
 
-                    if (points.Length > 0)
+                    if (placemark.Points.Count > 0)
                     {
                         var pointCategory = DeterminePointCategory(sourceDocument.SourceFileName, featureName, metadata);
                         if (pointCategory is not null)
                         {
-                            var pointValues = points.SelectMany(ParsePointValues).ToArray();
+                            var pointValues = placemark.Points
+                                .Select(point => new GeoPoint(point.Latitude, point.Longitude))
+                                .ToArray();
                             if (pointValues.Length > 0)
                             {
                                 if (pointCategory.Equals("park", StringComparison.OrdinalIgnoreCase)
@@ -1686,7 +1623,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                         }
                     }
 
-                    if (lineStrings.Length == 0)
+                    if (placemark.Lines.Count == 0)
                     {
                         continue;
                     }
@@ -1697,7 +1634,10 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
                         continue;
                     }
 
-                    var linePoints = lineStrings.SelectMany(ParseLineStringPoints).ToArray();
+                    var linePoints = placemark.Lines
+                        .SelectMany(line => line)
+                        .Select(point => new GeoPoint(point.Latitude, point.Longitude))
+                        .ToArray();
                     if (linePoints.Length == 0)
                     {
                         continue;
@@ -1712,7 +1652,10 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
 
                     features.Add(BuildFeatureRecord(sourceDocument.SourceFileName, featureName, category, "line", metadata, linePoints.Length));
                     trailLines.Add(new TrailLineRecord(sourceDocument.SourceFileName, featureName, metadata, linePoints));
-                    var geometryLines = lineStrings.Select(line => ParseLineStringPoints(line).ToArray()).Where(points => points.Length > 1).ToArray();
+                    var geometryLines = placemark.Lines
+                        .Where(points => points.Count > 1)
+                        .Select(points => points.Select(point => new GeoPoint(point.Latitude, point.Longitude)).ToArray())
+                        .ToArray();
                     geometryFeatures.Add(BuildLineGeometryFeature(featureName, category, geometryLines));
                     var lineRecords = BuildPointRecords(linePoints, sourceDocument.SourceFileName, featureName, category, "line", metadata, placemarkIndex);
                     collapsibleEntities.Add(BuildCollapsibleEntity(

@@ -60,7 +60,8 @@ public sealed class ArcGeometryExtractorRunnerTests
                 "--feature-output", featureOutputPath,
                 "--original-geometry-kml-output", parkOutlineKmlPath,
                 "--minimum-park-square-feet", "1000",
-                "--minimum-combined-park-trail-miles", "0.01"
+                "--minimum-trail-miles", "0.00001",
+                "--minimum-combined-park-trail-miles", "0.005"
             ],
             TextWriter.Null,
             TextWriter.Null);
@@ -114,7 +115,7 @@ public sealed class ArcGeometryExtractorRunnerTests
         File.Copy(kmzPath, duplicateKmzPath);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", kmzPath, "--input", duplicateKmzPath, "--output", outputPath],
+            ["--input", kmzPath, "--input", duplicateKmzPath, "--output", outputPath, "--minimum-trail-miles", "0.00001", "--minimum-combined-park-trail-miles", "0.005"],
             TextWriter.Null,
             TextWriter.Null);
 
@@ -166,8 +167,8 @@ public sealed class ArcGeometryExtractorRunnerTests
                 "--input", inputPath,
                 "--output", outputPath,
                 "--minimum-park-square-feet", "1000",
-                "--minimum-trail-miles", "1.65",
-                "--minimum-combined-park-trail-miles", "0.01"
+                "--minimum-trail-miles", "0.00001",
+                "--minimum-combined-park-trail-miles", "0.005"
             ],
             TextWriter.Null,
             TextWriter.Null);
@@ -318,7 +319,7 @@ public sealed class ArcGeometryExtractorRunnerTests
                   <name>Long Trail</name>
                   <description><![CDATA[<html><body><table><tr><td>Project_Type</td><td>Multi-Use Trail</td></tr><tr><td>Length</td><td>1.8</td></tr></table></body></html>]]></description>
                   <LineString>
-                    <coordinates>-84.3536,33.7528 -84.3537,33.7529</coordinates>
+                    <coordinates>-84.3536,33.7528 -84.3436,33.7528</coordinates>
                   </LineString>
                 </Placemark>
               </Document>
@@ -326,7 +327,7 @@ public sealed class ArcGeometryExtractorRunnerTests
             """);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", inputPath, "--output", outputPath],
+            ["--input", inputPath, "--output", outputPath, "--minimum-trail-miles", "0.5", "--minimum-combined-park-trail-miles", "0.005"],
             TextWriter.Null,
             TextWriter.Null);
 
@@ -367,7 +368,7 @@ public sealed class ArcGeometryExtractorRunnerTests
             """);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", inputPath, "--output", outputPath],
+            ["--input", inputPath, "--output", outputPath, "--minimum-combined-park-trail-miles", "0.01"],
             TextWriter.Null,
             TextWriter.Null);
 
@@ -416,7 +417,7 @@ public sealed class ArcGeometryExtractorRunnerTests
             """);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", inputPath, "--output", outputPath, "--feature-output", featureOutputPath, "--enable-entity-collapse", "--maximum-collapse-gap-miles", "0.3"],
+            ["--input", inputPath, "--output", outputPath, "--feature-output", featureOutputPath, "--enable-entity-collapse", "--maximum-collapse-gap-miles", "0.3", "--minimum-trail-miles", "0.00001", "--minimum-combined-park-trail-miles", "0.01"],
             TextWriter.Null,
             TextWriter.Null);
 
@@ -424,18 +425,18 @@ public sealed class ArcGeometryExtractorRunnerTests
 
         var points = await ReadRecordsAsync(outputPath);
         Assert.NotEmpty(points);
-        Assert.All(points, point => Assert.Equal("trail", point.Category));
+        Assert.All(points, point => Assert.Equal("park", point.Category));
         Assert.All(points, point =>
         {
             Assert.NotNull(point.CollapsedEntityId);
             Assert.Contains("collapsed", point.CollapsedEntityId, StringComparison.OrdinalIgnoreCase);
         });
-        Assert.All(points, point => Assert.Equal("Connected Trail", point.Name));
+        Assert.All(points, point => Assert.Equal("Connected Trail + 1 more", point.Name));
 
         var features = await ReadFeatureRecordsAsync(featureOutputPath);
         var collapsedFeature = Assert.Single(features.Where(feature => feature.GeometryType == "collapsed-component"));
         Assert.Contains("Connected Trail", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Tiny Park", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("Tiny Park", collapsedFeature.SearchNames, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -485,7 +486,7 @@ public sealed class ArcGeometryExtractorRunnerTests
             """);
 
         var exitCode = await ArcGeometryExtractorProgram.RunAsync(
-            ["--input", inputPath, "--output", outputPath, "--feature-output", featureOutputPath, "--enable-entity-collapse", "--maximum-collapse-gap-miles", "0.3"],
+            ["--input", inputPath, "--output", outputPath, "--feature-output", featureOutputPath, "--enable-entity-collapse", "--maximum-collapse-gap-miles", "0.3", "--minimum-trail-miles", "0.00001", "--minimum-combined-park-trail-miles", "0.01"],
             TextWriter.Null,
             TextWriter.Null);
 

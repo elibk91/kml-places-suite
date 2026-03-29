@@ -1,4 +1,3 @@
-using System.Xml.Linq;
 using KmlGenerator.Core.Models;
 using PlacesGatherer.Console.Models;
 
@@ -43,9 +42,17 @@ internal interface IArcOutputWriter
         IReadOnlyList<ArcGeometryExtractorApp.TrailLineRecord> trailLines);
 }
 
+internal sealed record ArcSourcePlacemark(
+    string Name,
+    string Description,
+    IReadOnlyDictionary<string, string> Metadata,
+    IReadOnlyList<CoordinateInput> Points,
+    IReadOnlyList<IReadOnlyList<CoordinateInput>> Lines,
+    IReadOnlyList<IReadOnlyList<IReadOnlyList<CoordinateInput>>> Polygons);
+
 internal sealed record ArcSourceDocument(
     string SourceFileName,
-    IReadOnlyList<XElement> Placemarks);
+    IReadOnlyList<ArcSourcePlacemark> Placemarks);
 
 internal sealed record ArcExtractionStageResult(
     IReadOnlyList<NormalizedPlaceRecord> DirectPointRecords,
