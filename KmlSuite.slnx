@@ -1,14 +1,14 @@
 <Solution>
-  <Project Path="ArcGeometryExtractor.Console/ArcGeometryExtractor.Console.csproj" />
-  <Project Path="KmlGenerator.Api/KmlGenerator.Api.csproj" />
-  <Project Path="KmlGenerator.Console/KmlGenerator.Console.csproj" />
-  <Project Path="KmlGenerator.Core/KmlGenerator.Core.csproj" />
-  <Project Path="KmlSuite.Shared/KmlSuite.Shared.csproj" />
-  <Project Path="KmlSuite.Analyzers/KmlSuite.Analyzers.csproj" />
-  <Project Path="KmlGenerator.Tests/KmlGenerator.Tests.csproj" />
-  <Project Path="KmlTiler.Console/KmlTiler.Console.csproj" />
-  <Project Path="LocationAssembler.Console/LocationAssembler.Console.csproj" />
-  <Project Path="MasterListBuilder.Console/MasterListBuilder.Console.csproj" />
-  <Project Path="PlacesGatherer.Console.Tests/PlacesGatherer.Console.Tests.csproj" />
-  <Project Path="PlacesGatherer.Console/PlacesGatherer.Console.csproj" />
+  <Project Path="ingest/authority/ArcGeometryExtractor.Console/ArcGeometryExtractor.Console.csproj" />
+  <Project Path="generate/KmlGenerator.Api/KmlGenerator.Api.csproj" />
+  <Project Path="generate/KmlGenerator.Console/KmlGenerator.Console.csproj" />
+  <Project Path="platform/core/KmlGenerator.Core/KmlGenerator.Core.csproj" />
+  <Project Path="platform/shared/KmlSuite.Shared/KmlSuite.Shared.csproj" />
+  <Project Path="platform/analyzers/KmlSuite.Analyzers/KmlSuite.Analyzers.csproj" />
+  <Project Path="tests/KmlGenerator.Tests/KmlGenerator.Tests.csproj" />
+  <Project Path="generate/KmlTiler.Console/KmlTiler.Console.csproj" />
+  <Project Path="ingest/assemble/LocationAssembler.Console/LocationAssembler.Console.csproj" />
+  <Project Path="ingest/places/MasterListBuilder.Console/MasterListBuilder.Console.csproj" />
+  <Project Path="tests/PlacesGatherer.Console.Tests/PlacesGatherer.Console.Tests.csproj" />
+  <Project Path="ingest/places/PlacesGatherer.Console/PlacesGatherer.Console.csproj" />
 </Solution>
