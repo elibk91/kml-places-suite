@@ -701,7 +701,7 @@ internal sealed class ArcGeometryExtractorApp : IArcGeometryExtractorApp
             || metadata.ContainsKey("STATION")
             || metadata.ContainsKey("Station_Code"))
         {
-            return "marta";
+            return "transit";
         }
 
         if (normalizedSource.Contains("park", StringComparison.Ordinal))

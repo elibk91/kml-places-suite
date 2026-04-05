@@ -1,8 +1,10 @@
 [CmdletBinding()]
 param(
-    [string]$MasterListOutputDirectory = ".\data\inputs\master-lists",
+    [string]$City = "atlanta",
 
-    [string]$CategoryConfigPath = ".\data\config\authority\category-config.with-gyms.json",
+    [string]$MasterListOutputDirectory,
+
+    [string]$CategoryConfigPath,
 
     [string]$RunId,
 
@@ -22,9 +24,9 @@ param(
 
     [string]$ArcOriginalGeometryKmlOutputPath,
 
-    [string[]]$ArcMartaInputPaths,
+    [string[]]$TransitInputPaths,
 
-    [string]$ArcMartaOutputPath,
+    [string]$TransitOutputPath,
 
     [string]$FinalRequestOutputPath,
 
@@ -36,17 +38,17 @@ param(
 
     [switch]$KeepIntermediateArtifacts,
 
-    [double]$TileNorth = 33.952876,
+    [double]$TileNorth,
 
-    [double]$TileSouth = 33.698669,
+    [double]$TileSouth,
 
-    [double]$TileWest = -84.54903,
+    [double]$TileWest,
 
-    [double]$TileEast = -84.095141,
+    [double]$TileEast,
 
-    [double]$TileLatitudeStep = 0.07,
+    [double]$TileLatitudeStep,
 
-    [double]$TileLongitudeStep = 0.09
+    [double]$TileLongitudeStep
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,9 +57,22 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workflowRoot = Split-Path -Parent $scriptDirectory
 $repoRoot = Split-Path -Parent $workflowRoot
 . (Join-Path $workflowRoot "helpers\Common.ps1")
-$arcSourceRoot = Join-Path $repoRoot "data\inputs\arc-sources"
+$cityKey = $City.Trim().ToLowerInvariant()
+if ([string]::IsNullOrWhiteSpace($cityKey)) {
+    throw "City is required."
+}
+
+if ([string]::IsNullOrWhiteSpace($MasterListOutputDirectory)) {
+    $MasterListOutputDirectory = ".\data\inputs\$cityKey\master-lists"
+}
+
+if ([string]::IsNullOrWhiteSpace($CategoryConfigPath)) {
+    $CategoryConfigPath = ".\data\config\$cityKey\authority\category-config.with-gyms.json"
+}
+
+$arcSourceRoot = Join-Path $repoRoot "data\inputs\$cityKey\arc-sources"
 $arcParksTrailsRoot = Join-Path $arcSourceRoot "parks-trails"
-$arcMartaRoot = Join-Path $arcSourceRoot "marta"
+$transitRoot = Join-Path $arcSourceRoot "transit"
 $categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
 $categoryConfigFileName = [System.IO.Path]::GetFileNameWithoutExtension((Resolve-DisplayPath -Path $CategoryConfigPath))
 
@@ -72,10 +87,11 @@ if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
         ForEach-Object { $_.FullName })
 }
 
-if (-not $ArcMartaInputPaths -or $ArcMartaInputPaths.Count -eq 0) {
-    $ArcMartaInputPaths = @(
-        (Join-Path $arcMartaRoot "atlanta_regional_commission_marta_rail_stations.kmz")
-    )
+if (-not $TransitInputPaths -or $TransitInputPaths.Count -eq 0) {
+    $TransitInputPaths = @(Get-ChildItem -Path $transitRoot -File -Recurse |
+        Where-Object { $_.Extension -in '.kml', '.kmz' } |
+        Sort-Object Name |
+        ForEach-Object { $_.FullName })
 }
 
 if (-not $RunId) {
@@ -83,7 +99,7 @@ if (-not $RunId) {
 }
 
 if (-not $RunOutputDirectory) {
-    $RunOutputDirectory = Join-Path (Join-Path $workflowRoot "out\runs") $categoryConfigFileName
+    $RunOutputDirectory = Join-Path (Join-Path (Join-Path $workflowRoot "out\runs") $cityKey) $categoryConfigFileName
 }
 
 if (-not $RunOutputDirectory.EndsWith($RunId, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -121,16 +137,16 @@ if (-not $ArcOriginalGeometryKmlOutputPath) {
     $ArcOriginalGeometryKmlOutputPath = Join-Path $RunOutputDirectory "arc-original-geometry.kml"
 }
 
-if (-not $ArcMartaOutputPath) {
-    $ArcMartaOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-marta-stations.arc.jsonl"
+if (-not $TransitOutputPath) {
+    $TransitOutputPath = Join-Path $intermediateRoot "category-workflow-$RunId-transit-stations.arc.jsonl"
 }
 
 if (-not $FinalRequestOutputPath) {
-    $FinalRequestOutputPath = Join-Path $RunOutputDirectory "atlanta-category-request.arc.json"
+    $FinalRequestOutputPath = Join-Path $RunOutputDirectory "$cityKey-category-request.arc.json"
 }
 
 if (-not $KmlOutputPath) {
-    $KmlOutputPath = Join-Path $RunOutputDirectory "atlanta-category-outline.arc.kml"
+    $KmlOutputPath = Join-Path $RunOutputDirectory "$cityKey-category-outline.arc.kml"
 }
 
 if (-not $TileOutputDirectory) {
@@ -143,6 +159,15 @@ $InputSnapshotRoot = Join-Path $RunOutputDirectory "inputs"
 $UsedMasterListsSnapshotRoot = Join-Path $InputSnapshotRoot "master-lists"
 $UsedArcSourcesSnapshotRoot = Join-Path $InputSnapshotRoot "arc-sources"
 $UsedCategoryConfigSnapshotPath = Join-Path $InputSnapshotRoot "category-config.used.json"
+
+if ($categoryConfig.PSObject.Properties.Name -contains "tiling") {
+    if (-not $PSBoundParameters.ContainsKey("TileNorth")) { $TileNorth = [double]$categoryConfig.tiling.north }
+    if (-not $PSBoundParameters.ContainsKey("TileSouth")) { $TileSouth = [double]$categoryConfig.tiling.south }
+    if (-not $PSBoundParameters.ContainsKey("TileWest")) { $TileWest = [double]$categoryConfig.tiling.west }
+    if (-not $PSBoundParameters.ContainsKey("TileEast")) { $TileEast = [double]$categoryConfig.tiling.east }
+    if (-not $PSBoundParameters.ContainsKey("TileLatitudeStep")) { $TileLatitudeStep = [double]$categoryConfig.tiling.latitudeStep }
+    if (-not $PSBoundParameters.ContainsKey("TileLongitudeStep")) { $TileLongitudeStep = [double]$categoryConfig.tiling.longitudeStep }
+}
 
 function Assert-WorkflowPrerequisites {
     Write-FunctionTrace -Name $MyInvocation.MyCommand.Name
@@ -166,6 +191,7 @@ function Save-CategoryConfigArtifacts {
     Copy-Item -Path (Resolve-DisplayPath -Path $CategoryConfigPath) -Destination (Resolve-DisplayPath -Path $UsedCategoryConfigSnapshotPath) -Force
 
     $metadata = [ordered]@{
+        city = $cityKey
         runId = $RunId
         sourceCategoryConfigPath = (Resolve-DisplayPath -Path $CategoryConfigPath)
         usedCategoryConfigPath = (Resolve-DisplayPath -Path $UsedCategoryConfigOutputPath)
@@ -182,7 +208,7 @@ function Save-CategoryConfigArtifacts {
             (Resolve-DisplayPath -Path (Join-Path $UsedMasterListsSnapshotRoot "groceries-master.jsonl"))
         )
         arcParkTrailInputs = @($ArcInputPaths | ForEach-Object { Resolve-DisplayPath -Path $_ })
-        arcMartaInputs = @($ArcMartaInputPaths | ForEach-Object { Resolve-DisplayPath -Path $_ })
+        transitInputs = @($TransitInputPaths | ForEach-Object { Resolve-DisplayPath -Path $_ })
         arcSourceSnapshotRoot = (Resolve-DisplayPath -Path $UsedArcSourcesSnapshotRoot)
         finalRequestOutputPath = (Resolve-DisplayPath -Path $FinalRequestOutputPath)
         kmlOutputPath = (Resolve-DisplayPath -Path $KmlOutputPath)
@@ -214,7 +240,7 @@ function Save-InputSnapshots {
         Copy-Item -Path (Resolve-DisplayPath -Path $masterListPath) -Destination (Resolve-DisplayPath -Path $destinationPath) -Force
     }
 
-    foreach ($arcInputPath in @($ArcInputPaths + $ArcMartaInputPaths)) {
+    foreach ($arcInputPath in @($ArcInputPaths + $TransitInputPaths)) {
         Assert-PathExists -Path $arcInputPath -FailureMessage "ARC input '$arcInputPath' does not exist for snapshotting."
         $relativePath = if ((Resolve-DisplayPath -Path $arcInputPath).StartsWith((Resolve-DisplayPath -Path $arcSourceRoot), [System.StringComparison]::OrdinalIgnoreCase)) {
             Get-RelativeDisplayPath -BasePath $arcSourceRoot -TargetPath $arcInputPath
@@ -245,41 +271,41 @@ function Assert-RequiredMasterLists {
     }
 }
 
-function Invoke-ArcMartaExtraction {
+function Invoke-TransitExtraction {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ProjectPath
     )
 
     Write-FunctionTrace -Name $MyInvocation.MyCommand.Name -Arguments @{
-        InputCount = if ($ArcMartaInputPaths) { $ArcMartaInputPaths.Count } else { 0 }
-        OutputPath = (Resolve-DisplayPath -Path $ArcMartaOutputPath)
+        InputCount = if ($TransitInputPaths) { $TransitInputPaths.Count } else { 0 }
+        OutputPath = (Resolve-DisplayPath -Path $TransitOutputPath)
     }
 
-    if (-not $ArcMartaInputPaths -or $ArcMartaInputPaths.Count -eq 0) {
-        throw "ArcMartaInputPaths are required for MARTA data."
+    if (-not $TransitInputPaths -or $TransitInputPaths.Count -eq 0) {
+        throw "TransitInputPaths are required for transit data."
     }
 
-    if (-not $ArcMartaOutputPath) {
-        throw "ArcMartaOutputPath is required when ArcMartaInputPaths are provided."
+    if (-not $TransitOutputPath) {
+        throw "TransitOutputPath is required when TransitInputPaths are provided."
     }
 
-    foreach ($inputPath in $ArcMartaInputPaths) {
-        Assert-PathExists -Path $inputPath -FailureMessage "ARC MARTA input '$inputPath' does not exist."
+    foreach ($inputPath in $TransitInputPaths) {
+        Assert-PathExists -Path $inputPath -FailureMessage "Transit input '$inputPath' does not exist."
     }
 
     $arguments = @("run", "--project", (Resolve-DisplayPath -Path $ProjectPath), "--no-build", "--")
-    foreach ($inputPath in $ArcMartaInputPaths) {
+    foreach ($inputPath in $TransitInputPaths) {
         $arguments += "--input"
         $arguments += (Resolve-DisplayPath -Path $inputPath)
     }
 
     $arguments += "--output"
-    $arguments += (Resolve-DisplayPath -Path $ArcMartaOutputPath)
+    $arguments += (Resolve-DisplayPath -Path $TransitOutputPath)
 
-    Ensure-ParentDirectory -Path $ArcMartaOutputPath
-    Invoke-DotnetCommand -Description "Extracting authoritative MARTA points" -Arguments $arguments -FailureMessage "Authoritative MARTA extraction failed."
-    Assert-PathExists -Path $ArcMartaOutputPath -FailureMessage "ARC MARTA output was not produced."
+    Ensure-ParentDirectory -Path $TransitOutputPath
+    Invoke-DotnetCommand -Description "Extracting authoritative transit points" -Arguments $arguments -FailureMessage "Authoritative transit extraction failed."
+    Assert-PathExists -Path $TransitOutputPath -FailureMessage "Transit output was not produced."
 }
 
 function Invoke-ArcParkTrailExtraction {
@@ -497,7 +523,7 @@ try {
     Write-ParameterTrace -Values @{
         ArcFeatureOutputPath = $ArcFeatureOutputPath
         ArcGeometryOutputPath = $ArcGeometryOutputPath
-        ArcMartaOutputPath = $ArcMartaOutputPath
+        City = $cityKey
         ArcOutputPath = $ArcOutputPath
         ArcParkOutputPath = $ArcParkOutputPath
         ArcTrailOutputPath = $ArcTrailOutputPath
@@ -508,6 +534,7 @@ try {
         RunId = $RunId
         RunOutputDirectory = $RunOutputDirectory
         TileOutputDirectory = $TileOutputDirectory
+        TransitOutputPath = $TransitOutputPath
     }
 
     Write-ProjectTrace -ProjectPath $arcExtractorProjectPath -Description "ARC geometry extractor"
@@ -518,12 +545,12 @@ try {
     Save-CategoryConfigArtifacts
     Save-InputSnapshots
     Assert-RequiredMasterLists -RequiredFiles $requiredMasterLists
-    Invoke-ArcMartaExtraction -ProjectPath $arcExtractorProjectPath
+    Invoke-TransitExtraction -ProjectPath $arcExtractorProjectPath
     $parkTrailInputPath = Invoke-ArcParkTrailExtraction -ProjectPath $arcExtractorProjectPath
     $assemblerInputPaths = @(
         (Join-Path $MasterListOutputDirectory "gyms-master.jsonl"),
         (Join-Path $MasterListOutputDirectory "groceries-master.jsonl"),
-        $ArcMartaOutputPath
+        $TransitOutputPath
     )
     $assemblerGeometryInputPaths = @(
         $ArcGeometryOutputPath

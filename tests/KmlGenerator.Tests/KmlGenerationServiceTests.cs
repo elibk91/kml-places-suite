@@ -66,7 +66,7 @@ public sealed class KmlGenerationServiceTests
             [
                 new LocationInput { Latitude = 33.7500d, Longitude = -84.3900d, Category = "gym", Label = "Gym" },
                 new LocationInput { Latitude = 33.7512d, Longitude = -84.3888d, Category = "grocery", Label = "Grocery" },
-                new LocationInput { Latitude = 33.7506d, Longitude = -84.3893d, Category = "marta", Label = "Marta" }
+                new LocationInput { Latitude = 33.7506d, Longitude = -84.3893d, Category = "transit", Label = "Transit" }
             ]
         };
 
@@ -92,7 +92,7 @@ public sealed class KmlGenerationServiceTests
                 new LocationInput { Latitude = 33.7502d, Longitude = -84.3902d, Category = "gym", Label = "Gym 3" },
                 new LocationInput { Latitude = 33.7503d, Longitude = -84.3903d, Category = "gym", Label = "Gym 4" },
                 new LocationInput { Latitude = 33.7500d, Longitude = -84.3900d, Category = "grocery", Label = "Grocery 1" },
-                new LocationInput { Latitude = 33.7500d, Longitude = -84.3900d, Category = "marta", Label = "MARTA 1" }
+                new LocationInput { Latitude = 33.7500d, Longitude = -84.3900d, Category = "transit", Label = "Transit 1" }
             ]
         };
 
@@ -107,11 +107,13 @@ public sealed class KmlGenerationServiceTests
     {
         var repoRoot = FindRepoRoot();
         var latestOutlinePath = Directory
-            .GetFiles(Path.Combine(repoRoot, "scripts", "out", "runs"), "atlanta-category-outline.arc.kml", SearchOption.AllDirectories)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .GetFiles(Path.Combine(repoRoot, "workflow", "out", "runs"), "*-category-outline.arc.kml", SearchOption.AllDirectories)
+            .OrderBy(path => File.GetLastWriteTimeUtc(path))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
             .Last();
         var latestRunDirectory = Path.GetDirectoryName(latestOutlinePath)!;
-        var requestPath = Path.Combine(latestRunDirectory, "atlanta-category-request.arc.json");
+        var cityPrefix = Path.GetFileName(latestOutlinePath).Replace("-category-outline.arc.kml", string.Empty, StringComparison.OrdinalIgnoreCase);
+        var requestPath = Path.Combine(latestRunDirectory, $"{cityPrefix}-category-request.arc.json");
 
         Assert.True(File.Exists(latestOutlinePath), $"Latest outline KML not found at '{latestOutlinePath}'.");
         Assert.True(File.Exists(requestPath), $"Validation request JSON not found at '{requestPath}'.");
@@ -198,10 +200,12 @@ public sealed class KmlGenerationServiceTests
         var document = XDocument.Parse(kml);
         return document
             .Descendants()
+            .Where(element => element.Name.LocalName.Equals("Folder", StringComparison.Ordinal))
+            .Where(element => element.Elements().Any(descendant =>
+                descendant.Name.LocalName.Equals("name", StringComparison.Ordinal)
+                && string.Equals(descendant.Value.Trim(), "Intersection", StringComparison.Ordinal)))
+            .Elements()
             .Where(element => element.Name.LocalName.Equals("Placemark", StringComparison.Ordinal))
-            .Where(element => element.Descendants().Any(descendant =>
-                descendant.Name.LocalName.Equals("styleUrl", StringComparison.Ordinal)
-                && string.Equals(descendant.Value.Trim(), "#intersection", StringComparison.Ordinal)))
             .Select(element => element.Descendants().First(descendant => descendant.Name.LocalName.Equals("coordinates", StringComparison.Ordinal)).Value)
             .Select(coordinatesText =>
             {
@@ -226,8 +230,8 @@ public sealed class KmlGenerationServiceTests
         while (!string.IsNullOrWhiteSpace(directory))
         {
             if (File.Exists(Path.Combine(directory, "AGENTS.md"))
-                && Directory.Exists(Path.Combine(directory, "scripts"))
-                && Directory.Exists(Path.Combine(directory, "KmlGenerator.Tests")))
+                && Directory.Exists(Path.Combine(directory, "workflow"))
+                && Directory.Exists(Path.Combine(directory, "tests")))
             {
                 return directory;
             }

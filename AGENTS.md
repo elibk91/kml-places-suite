@@ -36,8 +36,9 @@
 - Active composition roots use `AddKmlSuiteTracing()` plus `AddTracedSingleton(...)` for proxied runtime boundaries. Do not proxy concrete classes directly.
 - Keep Google-specific collection code inside `ingest/places/PlacesGatherer.Console`.
 - Keep authoritative local KML/KMZ ingestion inside `ingest/authority/ArcGeometryExtractor.Console`.
-- Use existing master-list artifacts for gyms and groceries in the active workflow. Use authoritative ARC geometry for parks, trails, and MARTA when available.
-- Default MARTA source is the ARC rail-stations KMZ, not Google-resolved station search.
+- Use existing master-list artifacts for gyms and groceries in the active workflow. Use authoritative ARC geometry for parks, trails, and transit when available.
+- Active city datasets live under `data/inputs/<city>/...` and active city configs live under `data/config/<city>/authority/...`.
+- Default Atlanta transit source is the ARC rail-stations KMZ, not Google-resolved station search.
 - Active overlap generation is geometry-native: it buffers real source geometry and writes KML polygons, not point-based boundary dots.
 - Do not rerun ARC extraction just because gym/grocery filtering or chain lists changed.
 - Read secrets through the secret-provider plumbing, not directly in domain code.
@@ -45,9 +46,9 @@
 - Use comments as signposts around major flows and non-obvious math, not on trivial assignments.
 
 ## Data And Output Layout
-- Keep reusable master-list inputs under `data/inputs/master-lists/`.
-- Keep durable raw ARC source files under `data/inputs/arc-sources/`.
-- Keep checked-in workflow/config JSON under `data/config/authority/`.
+- Keep reusable master-list inputs under `data/inputs/<city>/master-lists/`.
+- Keep durable raw ARC source files under `data/inputs/<city>/arc-sources/`.
+- Keep checked-in workflow/config JSON under `data/config/<city>/authority/`.
 - Keep active workflow outputs under `workflow/out/runs/`.
 - Keep workflow diagnostics under `workflow/out/diagnostics/`.
 - Name active run folders with filename-safe ISO timestamps and group them by config name.

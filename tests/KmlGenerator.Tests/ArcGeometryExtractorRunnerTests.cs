@@ -217,7 +217,7 @@ public sealed class ArcGeometryExtractorRunnerTests
 
         var points = await ReadRecordsAsync(outputPath);
         var point = Assert.Single(points);
-        Assert.Equal("marta", point.Category);
+        Assert.Equal("transit", point.Category);
         Assert.Equal("Decatur", point.Name);
     }
 
@@ -268,7 +268,7 @@ public sealed class ArcGeometryExtractorRunnerTests
 
         var points = await ReadRecordsAsync(outputPath);
         Assert.Equal(2, points.Count);
-        Assert.All(points, point => Assert.Equal("marta", point.Category));
+        Assert.All(points, point => Assert.Equal("transit", point.Category));
         Assert.Contains(points, point => point.Name == "Decatur");
         Assert.Contains(points, point => point.Name == "Avondale");
     }

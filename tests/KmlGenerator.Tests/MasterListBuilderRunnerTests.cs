@@ -104,10 +104,10 @@ public sealed class MasterListBuilderRunnerTests
               "tileLongitudeStep": 0.05,
               "groups": [
                 {
-                  "name": "marta",
+                  "name": "transit",
                   "mode": "tiled",
                   "searches": [
-                    { "query": "MARTA Midtown Station", "category": "marta", "sourceQueryType": "base" }
+                    { "query": "MARTA Midtown Station", "category": "transit", "sourceQueryType": "base" }
                   ]
                 }
               ]

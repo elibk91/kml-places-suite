@@ -1,16 +1,22 @@
 {
   "defaultRadiusMiles": 0.5,
   "includedCategories": [
-    "gym",
     "grocery",
-    "marta",
+    "transit",
     "park"
   ],
   "categoryRadiusMiles": {
-    "gym": 0.5,
     "grocery": 0.5,
-    "marta": 5.0,
+    "transit": 5.0,
     "park": 0.5
+  },
+  "tiling": {
+    "north": 33.952876,
+    "south": 33.698669,
+    "west": -84.54903,
+    "east": -84.095141,
+    "latitudeStep": 0.07,
+    "longitudeStep": 0.09
   },
   "minimumParkSquareFeet": 700000.0,
   "minimumTrailMiles": 0.5,

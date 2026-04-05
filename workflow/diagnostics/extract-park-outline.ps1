@@ -1,11 +1,13 @@
 [CmdletBinding()]
 param(
+    [string]$City = "atlanta",
+
     [string[]]$ArcInputPaths,
 
     [Parameter(Mandatory = $true)]
     [string]$ParkName,
 
-    [string]$CategoryConfigPath = ".\data\config\authority\category-config.with-gyms.json",
+    [string]$CategoryConfigPath,
 
     [string]$RunId,
 
@@ -26,8 +28,12 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workflowRoot = Split-Path -Parent $scriptDirectory
 $repoRoot = Split-Path -Parent $workflowRoot
 . (Join-Path $workflowRoot "helpers\Common.ps1")
+$cityKey = $City.Trim().ToLowerInvariant()
+if ([string]::IsNullOrWhiteSpace($CategoryConfigPath)) {
+    $CategoryConfigPath = ".\data\config\$cityKey\authority\category-config.with-gyms.json"
+}
 $extractorProjectPath = Join-Path $repoRoot "ingest\authority\ArcGeometryExtractor.Console\ArcGeometryExtractor.Console.csproj"
-$arcSourceRoot = Join-Path $repoRoot "data\inputs\arc-sources"
+$arcSourceRoot = Join-Path $repoRoot "data\inputs\$cityKey\arc-sources"
 $arcParksTrailsRoot = Join-Path $arcSourceRoot "parks-trails"
 $categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
 
@@ -101,7 +107,7 @@ if ([string]::IsNullOrWhiteSpace($safeParkName)) {
 }
 
 if (-not $RunOutputDirectory) {
-    $RunOutputDirectory = Join-Path $workflowRoot "out\runs"
+    $RunOutputDirectory = Join-Path (Join-Path $workflowRoot "out\runs") $cityKey
 }
 
 if (-not $RunOutputDirectory.EndsWith($RunId, [System.StringComparison]::OrdinalIgnoreCase)) {

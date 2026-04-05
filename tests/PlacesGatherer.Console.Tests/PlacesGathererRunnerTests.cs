@@ -33,6 +33,7 @@ public sealed class PlacesGathererRunnerTests
                 {
                   "query": "Piedmont Park",
                   "category": "park",
+                  "sourceQueryType": "base",
                   "expansion": {
                     "enabled": true,
                     "templates": [ "entrance" ]
