@@ -21,6 +21,4 @@ public sealed record class NormalizedPlaceRecord
     public required string SourceQueryType { get; init; }
 
     public required IReadOnlyList<string> SearchNames { get; init; }
-
-    public string? CollapsedEntityId { get; init; }
 }

@@ -1,0 +1,44 @@
+{
+  "defaultRadiusMiles": 0.5,
+  "includedCategories": [
+    "gym",
+    "grocery",
+    "park"
+  ],
+  "categoryRadiusMiles": {
+    "gym": 0.5,
+    "grocery": 0.5,
+    "park": 0.5
+  },
+  "tiling": {
+    "north": 29.840000,
+    "south": 29.660000,
+    "west": -95.560000,
+    "east": -95.245000,
+    "latitudeStep": 0.055,
+    "longitudeStep": 0.070
+  },
+  "minimumParkSquareFeet": 0.0,
+  "minimumTrailMiles": 0.0,
+  "minimumCombinedParkTrailMiles": 0.0,
+  "pointSpacingMiles": 0.1,
+  "diagnosticPointSpacingMiles": 0.1,
+  "categoryGroups": [
+    {
+      "targetCategory": "park",
+      "sourceCategories": [
+        "park",
+        "trail"
+      ]
+    }
+  ],
+  "independentDiagnostics": [
+    {
+      "label": "Washington Ave H-E-B Buffalo Bayou check",
+      "latitude": 29.7657667,
+      "longitude": -95.3991722,
+      "radiusMiles": 0.5,
+      "topPerCategory": 5
+    }
+  ]
+}

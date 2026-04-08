@@ -1,0 +1,130 @@
+﻿[
+    {
+        "fileName":  "Eos Fitness.json",
+        "query":  "EoS Fitness",
+        "category":  "gym",
+        "extractedCandidates":  2,
+        "kept":  2,
+        "removed":  0
+    },
+    {
+        "fileName":  "Life Time.json",
+        "query":  "Life Time",
+        "category":  "gym",
+        "extractedCandidates":  2,
+        "kept":  2,
+        "removed":  0
+    },
+    {
+        "fileName":  "YMCA.json",
+        "query":  "YMCA",
+        "category":  "gym",
+        "extractedCandidates":  0,
+        "kept":  0,
+        "removed":  0
+    },
+    {
+        "fileName":  "24 Hour Fitness.json",
+        "query":  "24 Hour Fitness",
+        "category":  "gym",
+        "extractedCandidates":  2,
+        "kept":  2,
+        "removed":  0
+    },
+    {
+        "fileName":  "la fitness.json",
+        "query":  "LA Fitness",
+        "category":  "gym",
+        "extractedCandidates":  2,
+        "kept":  1,
+        "removed":  0
+    },
+    {
+        "fileName":  "planet fitness.json",
+        "query":  "Planet Fitness",
+        "category":  "gym",
+        "extractedCandidates":  2,
+        "kept":  1,
+        "removed":  0
+    },
+    {
+        "fileName":  "Anytime Fitness.json",
+        "query":  "Anytime Fitness",
+        "category":  "gym",
+        "extractedCandidates":  2,
+        "kept":  1,
+        "removed":  0
+    },
+    {
+        "fileName":  "Crunch Fitness.json",
+        "query":  "Crunch Fitness",
+        "category":  "gym",
+        "extractedCandidates":  0,
+        "kept":  0,
+        "removed":  0
+    },
+    {
+        "fileName":  "Sams Club.json",
+        "query":  "Sam\u0027s Club",
+        "category":  "grocery",
+        "extractedCandidates":  0,
+        "kept":  0,
+        "removed":  0
+    },
+    {
+        "fileName":  "Randalls.json",
+        "query":  "Randalls",
+        "category":  "grocery",
+        "extractedCandidates":  2,
+        "kept":  2,
+        "removed":  0
+    },
+    {
+        "fileName":  "Sprouts Farmers Market.json",
+        "query":  "Sprouts Farmers Market",
+        "category":  "grocery",
+        "extractedCandidates":  0,
+        "kept":  0,
+        "removed":  0
+    },
+    {
+        "fileName":  "Whole Foods Market.json",
+        "query":  "Whole Foods Market",
+        "category":  "grocery",
+        "extractedCandidates":  2,
+        "kept":  1,
+        "removed":  0
+    },
+    {
+        "fileName":  "Trader Joes.json",
+        "query":  "Trader Joe\u0027s",
+        "category":  "grocery",
+        "extractedCandidates":  2,
+        "kept":  1,
+        "removed":  0
+    },
+    {
+        "fileName":  "ALDI.json",
+        "query":  "ALDI",
+        "category":  "grocery",
+        "extractedCandidates":  0,
+        "kept":  0,
+        "removed":  0
+    },
+    {
+        "fileName":  "Kroger.json",
+        "query":  "Kroger",
+        "category":  "grocery",
+        "extractedCandidates":  8,
+        "kept":  7,
+        "removed":  1
+    },
+    {
+        "fileName":  "H-E-B.json",
+        "query":  "H-E-B",
+        "category":  "grocery",
+        "extractedCandidates":  5,
+        "kept":  5,
+        "removed":  0
+    }
+]

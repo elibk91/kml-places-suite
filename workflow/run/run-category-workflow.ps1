@@ -75,6 +75,8 @@ $arcParksTrailsRoot = Join-Path $arcSourceRoot "parks-trails"
 $transitRoot = Join-Path $arcSourceRoot "transit"
 $categoryConfig = Get-Content -Path $CategoryConfigPath | ConvertFrom-Json
 $categoryConfigFileName = [System.IO.Path]::GetFileNameWithoutExtension((Resolve-DisplayPath -Path $CategoryConfigPath))
+$includedCategories = @($categoryConfig.includedCategories | ForEach-Object { [string]$_ })
+$includeTransit = $includedCategories -contains "transit"
 
 if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
     # Keep durable source KML/KMZ in-repo so active workflows do not depend on developer Downloads folders.
@@ -87,12 +89,15 @@ if (-not $ArcInputPaths -or $ArcInputPaths.Count -eq 0) {
         ForEach-Object { $_.FullName })
 }
 
-if (-not $TransitInputPaths -or $TransitInputPaths.Count -eq 0) {
+if ($includeTransit -and (-not $TransitInputPaths -or $TransitInputPaths.Count -eq 0)) {
     $TransitInputPaths = @(Get-ChildItem -Path $transitRoot -File -Recurse |
         Where-Object { $_.Extension -in '.kml', '.kmz' } |
         Sort-Object Name |
         ForEach-Object { $_.FullName })
 }
+
+$ArcInputPaths = @($ArcInputPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$TransitInputPaths = @($TransitInputPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
 if (-not $RunId) {
     $RunId = Get-Date -Format "yyyy-MM-ddTHH-mm-ss"
@@ -155,10 +160,12 @@ if (-not $TileOutputDirectory) {
 
 $UsedCategoryConfigOutputPath = Join-Path $RunOutputDirectory "category-config.used.json"
 $UsedCategoryConfigMetadataOutputPath = Join-Path $RunOutputDirectory "category-config.used.metadata.json"
+$WorkflowContextOutputPath = Join-Path $RunOutputDirectory "workflow-context.json"
 $InputSnapshotRoot = Join-Path $RunOutputDirectory "inputs"
 $UsedMasterListsSnapshotRoot = Join-Path $InputSnapshotRoot "master-lists"
 $UsedArcSourcesSnapshotRoot = Join-Path $InputSnapshotRoot "arc-sources"
 $UsedCategoryConfigSnapshotPath = Join-Path $InputSnapshotRoot "category-config.used.json"
+$IndependentDiagnosticsOutputDirectory = Join-Path $RunOutputDirectory "independent-diagnostics"
 
 if ($categoryConfig.PSObject.Properties.Name -contains "tiling") {
     if (-not $PSBoundParameters.ContainsKey("TileNorth")) { $TileNorth = [double]$categoryConfig.tiling.north }
@@ -180,11 +187,13 @@ function Save-CategoryConfigArtifacts {
     Write-FunctionTrace -Name $MyInvocation.MyCommand.Name -Arguments @{
         SourcePath = (Resolve-DisplayPath -Path $CategoryConfigPath)
         UsedConfigPath = (Resolve-DisplayPath -Path $UsedCategoryConfigOutputPath)
+        WorkflowContextPath = (Resolve-DisplayPath -Path $WorkflowContextOutputPath)
     }
 
     Assert-PathExists -Path $CategoryConfigPath -FailureMessage "Category config '$CategoryConfigPath' does not exist."
     Ensure-ParentDirectory -Path $UsedCategoryConfigOutputPath
     Ensure-ParentDirectory -Path $UsedCategoryConfigMetadataOutputPath
+    Ensure-ParentDirectory -Path $WorkflowContextOutputPath
     Ensure-ParentDirectory -Path $UsedCategoryConfigSnapshotPath
 
     Copy-Item -Path (Resolve-DisplayPath -Path $CategoryConfigPath) -Destination (Resolve-DisplayPath -Path $UsedCategoryConfigOutputPath) -Force
@@ -215,10 +224,60 @@ function Save-CategoryConfigArtifacts {
         tileOutputDirectory = (Resolve-DisplayPath -Path $TileOutputDirectory)
     }
 
+    $workflowContext = [ordered]@{
+        city = $cityKey
+        runId = $RunId
+        categoryConfigPath = (Resolve-DisplayPath -Path $CategoryConfigPath)
+        usedCategoryConfigPath = (Resolve-DisplayPath -Path $UsedCategoryConfigOutputPath)
+        includedCategories = @($includedCategories)
+        thresholds = [ordered]@{
+            minimumParkSquareFeet = [double]$categoryConfig.minimumParkSquareFeet
+            minimumTrailMiles = [double]$categoryConfig.minimumTrailMiles
+            minimumCombinedParkTrailMiles = [double]$categoryConfig.minimumCombinedParkTrailMiles
+            pointSpacingMiles = [double]$categoryConfig.pointSpacingMiles
+            diagnosticPointSpacingMiles = if ($categoryConfig.PSObject.Properties.Name -contains "diagnosticPointSpacingMiles") {
+                [double]$categoryConfig.diagnosticPointSpacingMiles
+            }
+            else {
+                $null
+            }
+        }
+        arcParkTrailInputs = @($ArcInputPaths | ForEach-Object { Resolve-DisplayPath -Path $_ })
+        transitInputs = @($TransitInputPaths | ForEach-Object { Resolve-DisplayPath -Path $_ })
+        masterListInputs = @(
+            (Resolve-DisplayPath -Path (Join-Path $MasterListOutputDirectory "gyms-master.jsonl")),
+            (Resolve-DisplayPath -Path (Join-Path $MasterListOutputDirectory "groceries-master.jsonl"))
+        )
+        outputs = [ordered]@{
+            runOutputDirectory = (Resolve-DisplayPath -Path $RunOutputDirectory)
+            finalRequestOutputPath = (Resolve-DisplayPath -Path $FinalRequestOutputPath)
+            kmlOutputPath = (Resolve-DisplayPath -Path $KmlOutputPath)
+            tileOutputDirectory = (Resolve-DisplayPath -Path $TileOutputDirectory)
+            independentDiagnosticsOutputDirectory = (Resolve-DisplayPath -Path $IndependentDiagnosticsOutputDirectory)
+        }
+        independentDiagnostics = if ($categoryConfig.PSObject.Properties.Name -contains "independentDiagnostics") {
+            @($categoryConfig.independentDiagnostics | ForEach-Object {
+                [ordered]@{
+                    label = if ($_.PSObject.Properties.Name -contains "label") { [string]$_.label } else { $null }
+                    latitude = [double]$_.latitude
+                    longitude = [double]$_.longitude
+                    radiusMiles = if ($_.PSObject.Properties.Name -contains "radiusMiles") { [double]$_.radiusMiles } else { [double]$categoryConfig.defaultRadiusMiles }
+                    topPerCategory = if ($_.PSObject.Properties.Name -contains "topPerCategory") { [int]$_.topPerCategory } else { 5 }
+                }
+            })
+        }
+        else {
+            @()
+        }
+    }
+
     $metadata | ConvertTo-Json -Depth 5 | Set-Content -Path (Resolve-DisplayPath -Path $UsedCategoryConfigMetadataOutputPath) -Encoding UTF8
+    $workflowContext | ConvertTo-Json -Depth 8 | Set-Content -Path (Resolve-DisplayPath -Path $WorkflowContextOutputPath) -Encoding UTF8
     Assert-PathExists -Path $UsedCategoryConfigOutputPath -FailureMessage "Used category config snapshot was not produced."
     Assert-PathExists -Path $UsedCategoryConfigMetadataOutputPath -FailureMessage "Used category config metadata was not produced."
+    Assert-PathExists -Path $WorkflowContextOutputPath -FailureMessage "Workflow context artifact was not produced."
     Assert-PathExists -Path $UsedCategoryConfigSnapshotPath -FailureMessage "Used category config input snapshot was not produced."
+    Write-Log -Message "Workflow context: $(Resolve-DisplayPath -Path $WorkflowContextOutputPath)" -Level "INFO"
 }
 
 function Save-InputSnapshots {
@@ -280,6 +339,11 @@ function Invoke-TransitExtraction {
     Write-FunctionTrace -Name $MyInvocation.MyCommand.Name -Arguments @{
         InputCount = if ($TransitInputPaths) { $TransitInputPaths.Count } else { 0 }
         OutputPath = (Resolve-DisplayPath -Path $TransitOutputPath)
+    }
+
+    if (-not $includeTransit) {
+        Write-Log -Message "Transit category not included; skipping transit extraction." -Level "TRACE"
+        return
     }
 
     if (-not $TransitInputPaths -or $TransitInputPaths.Count -eq 0) {
@@ -347,15 +411,6 @@ function Invoke-ArcParkTrailExtraction {
     $arguments += ([string]$categoryConfig.minimumCombinedParkTrailMiles)
     $arguments += "--point-spacing-miles"
     $arguments += ([string]$categoryConfig.pointSpacingMiles)
-    if ($categoryConfig.entityCollapsing -and $categoryConfig.entityCollapsing.enabled) {
-        $arguments += "--enable-entity-collapse"
-        $arguments += "--maximum-collapse-gap-miles"
-        $arguments += ([string]$categoryConfig.entityCollapsing.maximumGapMiles)
-        foreach ($collapseCategory in $categoryConfig.entityCollapsing.eligibleCategories) {
-            $arguments += "--collapse-category"
-            $arguments += ([string]$collapseCategory)
-        }
-    }
 
     if ($ArcParkOutputPath) {
         $arguments += "--park-output"
@@ -495,6 +550,107 @@ function Invoke-TileGeneration {
     Assert-PathExists -Path $TileOutputDirectory -FailureMessage "Tile output directory was not produced."
 }
 
+function Get-SafeFileLabel {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    $invalidCharacters = [System.IO.Path]::GetInvalidFileNameChars()
+    $builder = [System.Text.StringBuilder]::new()
+    foreach ($character in $Value.ToCharArray()) {
+        if ($invalidCharacters -contains $character) {
+            [void]$builder.Append('-')
+        }
+        else {
+            [void]$builder.Append($character)
+        }
+    }
+
+    $sanitized = $builder.ToString().Trim()
+    if ([string]::IsNullOrWhiteSpace($sanitized)) {
+        return "diagnostic"
+    }
+
+    return ($sanitized -replace '\s+', '-')
+}
+
+function Invoke-IndependentDiagnostics {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath
+    )
+
+    if (-not ($categoryConfig.PSObject.Properties.Name -contains "independentDiagnostics")) {
+        Write-Log -Message "No independent diagnostics configured; skipping final coordinate diagnostics." -Level "TRACE"
+        return
+    }
+
+    $diagnostics = @($categoryConfig.independentDiagnostics)
+    if ($diagnostics.Count -eq 0) {
+        Write-Log -Message "Independent diagnostics config is empty; skipping final coordinate diagnostics." -Level "TRACE"
+        return
+    }
+
+    Assert-PathExists -Path $FinalRequestOutputPath -FailureMessage "Final request output does not exist before independent diagnostics."
+    New-Item -ItemType Directory -Force -Path (Resolve-DisplayPath -Path $IndependentDiagnosticsOutputDirectory) | Out-Null
+
+    for ($index = 0; $index -lt $diagnostics.Count; $index++) {
+        $diagnostic = $diagnostics[$index]
+        $label = if ($diagnostic.PSObject.Properties.Name -contains "label" -and -not [string]::IsNullOrWhiteSpace([string]$diagnostic.label)) {
+            [string]$diagnostic.label
+        }
+        else {
+            "diagnostic-$($index + 1)"
+        }
+
+        $radiusMiles = if ($diagnostic.PSObject.Properties.Name -contains "radiusMiles") {
+            [double]$diagnostic.radiusMiles
+        }
+        else {
+            [double]$categoryConfig.defaultRadiusMiles
+        }
+
+        $topPerCategory = if ($diagnostic.PSObject.Properties.Name -contains "topPerCategory") {
+            [int]$diagnostic.topPerCategory
+        }
+        else {
+            5
+        }
+
+        $safeLabel = Get-SafeFileLabel -Value $label
+        $outputPath = Join-Path $IndependentDiagnosticsOutputDirectory ("{0:D2}-{1}.txt" -f ($index + 1), $safeLabel)
+
+        $arguments = @(
+            "run", "--project", (Resolve-DisplayPath -Path $ProjectPath), "--no-build", "--",
+            "--input", (Resolve-DisplayPath -Path $FinalRequestOutputPath),
+            "--diagnose-latitude", ([double]$diagnostic.latitude).ToString([System.Globalization.CultureInfo]::InvariantCulture),
+            "--diagnose-longitude", ([double]$diagnostic.longitude).ToString([System.Globalization.CultureInfo]::InvariantCulture),
+            "--diagnose-radius-miles", $radiusMiles.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+            "--diagnose-top-per-category", $topPerCategory.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+        )
+
+        $commandLine = Format-CommandLine -Executable "dotnet" -Arguments $arguments
+        Write-Log -Message "Running independent diagnostic '$label'" -Level "INFO"
+        Write-Log -Message "Independent diagnostic output: $(Resolve-DisplayPath -Path $outputPath)" -Level "INFO"
+        Write-Log -Message "Running: $commandLine" -Level "TRACE"
+        $exitCode = Invoke-DotnetCommandWithPolling -Arguments $arguments -LogPath $outputPath
+        if ($exitCode -ne 0) {
+            throw "Independent diagnostic '$label' failed. See '$(Resolve-DisplayPath -Path $outputPath)'."
+        }
+
+        $diagnosticText = Get-Content -Path (Resolve-DisplayPath -Path $outputPath) -Raw
+        $missingMatch = [System.Text.RegularExpressions.Regex]::Match(
+            $diagnosticText,
+            'Missing within radius:\s*(?<categories>.+)')
+        if ($missingMatch.Success) {
+            $missingCategories = $missingMatch.Groups['categories'].Value.Trim()
+            Write-Log -Message "Independent diagnostic '$label' reported missing categories within radius: $missingCategories" -Level "ERROR"
+            throw "Independent diagnostic '$label' failed because categories were missing within radius: $missingCategories. See '$(Resolve-DisplayPath -Path $outputPath)'."
+        }
+    }
+}
+
 $arcExtractorProjectPath = Join-Path $repoRoot "ingest\authority\ArcGeometryExtractor.Console\ArcGeometryExtractor.Console.csproj"
 $assemblerProjectPath = Join-Path $repoRoot "ingest\assemble\LocationAssembler.Console\LocationAssembler.Console.csproj"
 $kmlGeneratorProjectPath = Join-Path $repoRoot "generate\KmlGenerator.Console\KmlGenerator.Console.csproj"
@@ -549,15 +705,18 @@ try {
     $parkTrailInputPath = Invoke-ArcParkTrailExtraction -ProjectPath $arcExtractorProjectPath
     $assemblerInputPaths = @(
         (Join-Path $MasterListOutputDirectory "gyms-master.jsonl"),
-        (Join-Path $MasterListOutputDirectory "groceries-master.jsonl"),
-        $TransitOutputPath
+        (Join-Path $MasterListOutputDirectory "groceries-master.jsonl")
     )
+    if ($includeTransit) {
+        $assemblerInputPaths += $TransitOutputPath
+    }
     $assemblerGeometryInputPaths = @(
         $ArcGeometryOutputPath
     )
     Invoke-LocationAssembly -ProjectPath $assemblerProjectPath -Inputs $assemblerInputPaths -GeometryInputs $assemblerGeometryInputPaths
     Invoke-KmlGeneration -ProjectPath $kmlGeneratorProjectPath
     Invoke-TileGeneration -ProjectPath $kmlTilerProjectPath
+    Invoke-IndependentDiagnostics -ProjectPath $kmlGeneratorProjectPath
 
     if (-not $KeepIntermediateArtifacts) {
         Get-ChildItem -Path (Resolve-DisplayPath -Path $TileOutputDirectory) -File -Filter *.request.json -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue

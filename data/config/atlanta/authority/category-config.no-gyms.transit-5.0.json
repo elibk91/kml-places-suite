@@ -23,14 +23,6 @@
   "minimumCombinedParkTrailMiles": 1.65,
   "pointSpacingMiles": 0.5,
   "diagnosticPointSpacingMiles": 0.25,
-  "entityCollapsing": {
-    "enabled": true,
-    "maximumGapMiles": 0.3,
-    "eligibleCategories": [
-      "park",
-      "trail"
-    ]
-  },
   "categoryGroups": [
     {
       "targetCategory": "park",

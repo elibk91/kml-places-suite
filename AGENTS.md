@@ -41,6 +41,10 @@
 - Default Atlanta transit source is the ARC rail-stations KMZ, not Google-resolved station search.
 - Active overlap generation is geometry-native: it buffers real source geometry and writes KML polygons, not point-based boundary dots.
 - Do not rerun ARC extraction just because gym/grocery filtering or chain lists changed.
+- City-specific coverage claims must be verified against the actual generated request or run output, not inferred only from unit-test code or from reading implementation.
+- When a user reports a bad city result, first inspect the active workflow settings and run the real coordinate diagnostic against the current request before proposing logic changes.
+- Do not present code inspection as if it were execution evidence. Be explicit about whether a statement comes from reading code, reading artifacts, or running the workflow.
+- Do not add source-specific extractor heuristics to explain a city regression until the active workflow settings and current run artifacts have been checked.
 - Read secrets through the secret-provider plumbing, not directly in domain code.
 - Runtime DI should prefer interface injection over concrete runtime service injection. The analyzer enforces that rule and also bans the null-forgiving operator in repo code.
 - Use comments as signposts around major flows and non-obvious math, not on trivial assignments.
@@ -59,5 +63,6 @@
 - Live Places integration tests are opt-in and require `RUN_LIVE_GOOGLE_TESTS=true` plus `GoogleMaps__ApiKey`.
 - Use solution builds as the supported compile path.
 - `workflow/run/run-category-workflow.ps1` is the active end-to-end workflow entrypoint.
+- `workflow/diagnostics/diagnose-coordinate-coverage.ps1` is the required independent diagnostic and verification path for city-output complaints. Run it against the actual generated request before concluding whether a category is present or missing near a coordinate.
 - `workflow/diagnostics/extract-park-outline.ps1` is diagnostic-only, but it must still invoke `ingest/authority/ArcGeometryExtractor.Console` so the extracted park shape comes from the same parsing and filtering code path as the active workflow.
 - Do not default to the full category workflow for gym/grocery-only refreshes; prefer a partial refresh that reuses existing ARC outputs.

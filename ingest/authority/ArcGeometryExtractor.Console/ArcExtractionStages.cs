@@ -10,20 +10,7 @@ internal interface IArcFeatureExtractor
 {
     ArcExtractionStageResult Extract(
         IReadOnlyList<ArcSourceDocument> sourceDocuments,
-        double collapseGridCellSizeFeet,
         double pointSpacingFeet,
-        double minimumParkSquareFeet,
-        double minimumTrailMiles,
-        double minimumCombinedParkTrailMiles);
-}
-
-internal interface IArcEntityCollapser
-{
-    ArcCollapsedEntityResult Collapse(
-        IReadOnlyList<ArcGeometryExtractorApp.CollapsibleEntity> entities,
-        bool enableEntityCollapse,
-        double maximumCollapseGapMiles,
-        IReadOnlySet<string> collapseEligibleCategories,
         double minimumParkSquareFeet,
         double minimumTrailMiles,
         double minimumCombinedParkTrailMiles);
@@ -55,13 +42,8 @@ internal sealed record ArcSourceDocument(
     IReadOnlyList<ArcSourcePlacemark> Placemarks);
 
 internal sealed record ArcExtractionStageResult(
-    IReadOnlyList<NormalizedPlaceRecord> DirectPointRecords,
-    IReadOnlyList<ArcGeometryExtractorApp.CollapsibleEntity> CollapsibleEntities,
+    IReadOnlyList<NormalizedPlaceRecord> PointRecords,
     IReadOnlyList<ArcGeometryExtractorApp.ArcFeatureRecord> Features,
     IReadOnlyList<GeometryFeatureInput> GeometryFeatures,
     IReadOnlyList<ArcGeometryExtractorApp.ParkPolygonRecord> ParkPolygons,
     IReadOnlyList<ArcGeometryExtractorApp.TrailLineRecord> TrailLines);
-
-internal sealed record ArcCollapsedEntityResult(
-    IReadOnlyList<NormalizedPlaceRecord> PointRecords,
-    IReadOnlyList<ArcGeometryExtractorApp.ArcFeatureRecord> FeatureRecords);

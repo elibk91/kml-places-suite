@@ -3,6 +3,7 @@ using System.Globalization;
 using KmlGenerator.Core.Models;
 using KmlGenerator.Core.Services;
 using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 return await KmlConsoleProgram.RunAsync(args, Console.Out, Console.Error);
@@ -11,15 +12,7 @@ public static class KmlConsoleProgram
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
         var services = new ServiceCollection();
-        services.AddLogging(builder =>
-        {
-            builder.AddSimpleConsole(console =>
-            {
-                console.TimestampFormat = "HH:mm:ss.fff ";
-                console.SingleLine = true;
-            });
-            builder.SetMinimumLevel(LogLevel.Trace);
-        });
+        services.AddKmlSuiteHostDiagnostics("kml-generator");
         services.AddKmlSuiteTracing();
         services.AddTracedSingleton<IKmlGenerationService, KmlGenerationService>();
         services.AddTracedSingleton<IKmlConsoleApp, KmlConsoleRunner>();

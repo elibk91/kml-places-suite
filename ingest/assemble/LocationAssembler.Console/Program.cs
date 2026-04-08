@@ -1,6 +1,7 @@
 using System.Text.Json;
 using KmlGenerator.Core.Models;
 using KmlSuite.Shared.DependencyInjection;
+using KmlSuite.Shared.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using LocationAssembler.Console;
@@ -13,15 +14,7 @@ public static class LocationAssemblerProgram
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
         var services = new ServiceCollection();
-        services.AddLogging(builder =>
-        {
-            builder.AddSimpleConsole(console =>
-            {
-                console.TimestampFormat = "HH:mm:ss.fff ";
-                console.SingleLine = true;
-            });
-            builder.SetMinimumLevel(LogLevel.Trace);
-        });
+        services.AddKmlSuiteHostDiagnostics("location-assembler");
         services.AddKmlSuiteTracing();
         services.AddTracedSingleton<ILocationAssemblerApp, LocationAssemblerRunner>();
 
@@ -71,17 +64,25 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                 await foreach (var line in ReadNonEmptyLinesAsync(inputPath))
                 {
                     var record = DeserializeRecord(line);
-                    var feature = MapToPointFeature(record, categorySelection);
+                    var feature = MapToPointFeature(record, categorySelection, _logger);
                     if (feature is not null)
                     {
-                        distinctFeatures.Add(feature);
-                        distinctLocations.Add(new LocationInput
+                        if (!distinctFeatures.Add(feature))
+                        {
+                            _logger.LogDebug("Skipping duplicate point feature {Label} category={Category}", feature.Label, feature.Category);
+                        }
+
+                        var location = new LocationInput
                         {
                             Latitude = record.Latitude,
                             Longitude = record.Longitude,
                             Category = feature.Category,
                             Label = feature.Label
-                        });
+                        };
+                        if (!distinctLocations.Add(location))
+                        {
+                            _logger.LogDebug("Skipping duplicate location {Label} category={Category} latitude={Latitude} longitude={Longitude}", location.Label, location.Category, location.Latitude, location.Longitude);
+                        }
                     }
 
                     fileRecordCount++;
@@ -99,10 +100,17 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
 
                 foreach (var feature in geometryRequest.Features)
                 {
-                    var normalizedFeature = NormalizeFeature(feature, categorySelection);
+                    var normalizedFeature = NormalizeFeature(feature, categorySelection, _logger);
                     if (normalizedFeature is not null)
                     {
-                        distinctFeatures.Add(normalizedFeature);
+                        if (!distinctFeatures.Add(normalizedFeature))
+                        {
+                            _logger.LogDebug(
+                                "Skipping duplicate geometry feature {Label} category={Category} geometryType={GeometryType}",
+                                normalizedFeature.Label,
+                                normalizedFeature.Category,
+                                normalizedFeature.GeometryType);
+                        }
                     }
                 }
 
@@ -213,10 +221,7 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
                 Types = TryReadStringArray(root, "types"),
                 SourceQueryType = root.GetProperty("sourceQueryType").GetString()
                                   ?? throw new InvalidOperationException("The jsonl input contains an invalid place record."),
-                SearchNames = searchNames,
-                CollapsedEntityId = root.TryGetProperty("collapsedEntityId", out var collapsedEntityId)
-                    ? collapsedEntityId.GetString()
-                    : null
+                SearchNames = searchNames
             };
         }
     }
@@ -241,17 +246,30 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         return values;
     }
 
-    private static GeometryFeatureInput? MapToPointFeature(NormalizedPlaceRecord record, CategorySelection selection)
+    private static GeometryFeatureInput? MapToPointFeature(NormalizedPlaceRecord record, CategorySelection selection, ILogger logger)
     {
-        var category = selection.Normalize(record.Category);
-        if (category is null)
+        var normalization = selection.Normalize(record.Category);
+        if (normalization.Category is null)
         {
+            logger.LogWarning(
+                "Skipping point record {Label} because category {Category} is excluded or invalid",
+                record.Name,
+                record.Category);
             return null;
+        }
+
+        if (normalization.GroupedFrom is not null)
+        {
+            logger.LogInformation(
+                "Remapped point record {Label} category {OriginalCategory} -> {NormalizedCategory}",
+                record.Name,
+                normalization.GroupedFrom,
+                normalization.Category);
         }
 
         return new GeometryFeatureInput
         {
-            Category = category,
+            Category = normalization.Category,
             Label = record.Name,
             GeometryType = "point",
             Points =
@@ -265,17 +283,30 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
         };
     }
 
-    private static GeometryFeatureInput? NormalizeFeature(GeometryFeatureInput feature, CategorySelection selection)
+    private static GeometryFeatureInput? NormalizeFeature(GeometryFeatureInput feature, CategorySelection selection, ILogger logger)
     {
-        var category = selection.Normalize(feature.Category);
-        if (category is null)
+        var normalization = selection.Normalize(feature.Category);
+        if (normalization.Category is null)
         {
+            logger.LogWarning(
+                "Skipping geometry feature {Label} because category {Category} is excluded or invalid",
+                feature.Label,
+                feature.Category);
             return null;
+        }
+
+        if (normalization.GroupedFrom is not null)
+        {
+            logger.LogInformation(
+                "Remapped geometry feature {Label} category {OriginalCategory} -> {NormalizedCategory}",
+                feature.Label,
+                normalization.GroupedFrom,
+                normalization.Category);
         }
 
         return new GeometryFeatureInput
         {
-            Category = category,
+            Category = normalization.Category,
             Label = feature.Label,
             GeometryType = feature.GeometryType,
             Points = feature.Points,
@@ -367,26 +398,33 @@ public sealed class LocationAssemblerRunner : ILocationAssemblerApp
             return new CategorySelection(groupedCategories, includedCategories, config.DefaultRadiusMiles, categoryRadiusMiles);
         }
 
-        public string? Normalize(string rawCategory)
+        public CategoryNormalizationResult Normalize(string rawCategory)
         {
             if (string.IsNullOrWhiteSpace(rawCategory))
             {
-                return null;
+                return CategoryNormalizationResult.Excluded;
             }
 
             var normalized = rawCategory.Trim();
+            string? groupedFrom = null;
             if (_groupedCategories.TryGetValue(normalized, out var groupedCategory))
             {
+                groupedFrom = normalized;
                 normalized = groupedCategory;
             }
 
             if (_includedCategories.Count > 0 && !_includedCategories.Contains(normalized))
             {
-                return null;
+                return CategoryNormalizationResult.Excluded;
             }
 
-            return normalized;
+            return new CategoryNormalizationResult(normalized, groupedFrom);
         }
+    }
+
+    private sealed record CategoryNormalizationResult(string? Category, string? GroupedFrom)
+    {
+        public static CategoryNormalizationResult Excluded { get; } = new(null, null);
     }
 
     private sealed class CategorySelectionFile

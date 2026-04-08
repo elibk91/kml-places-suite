@@ -1,17 +1,13 @@
 using KmlSuite.Shared.Tracing;
 using Microsoft.Extensions.DependencyInjection;
+
 namespace KmlSuite.Shared.DependencyInjection;
+
 public static class TracingServiceCollectionExtensions
 {
     public static IServiceCollection AddKmlSuiteTracing(this IServiceCollection services)
     {
-        services.AddSingleton<ITraceInvocationRecorder>(static _ =>
-        {
-            var eventsPath = TraceEnvironment.GetEventsPath();
-            return string.IsNullOrWhiteSpace(eventsPath)
-                ? new NullTraceInvocationRecorder()
-                : new FileTraceInvocationRecorder(eventsPath);
-        });
+        services.AddSingleton<ITraceInvocationRecorder, LoggerTraceInvocationRecorder>();
         services.AddSingleton<ITraceProxyFactory, TraceProxyFactory>();
         return services;
     }

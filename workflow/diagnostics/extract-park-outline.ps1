@@ -171,15 +171,6 @@ $arguments += "--feature-output"
 $arguments += (Resolve-DisplayPath -Path $featureOutputPath)
 $arguments += "--original-geometry-kml-output"
 $arguments += (Resolve-DisplayPath -Path $intermediateOriginalGeometryOutputPath)
-if ($categoryConfig.entityCollapsing -and $categoryConfig.entityCollapsing.enabled) {
-    $arguments += "--enable-entity-collapse"
-    $arguments += "--maximum-collapse-gap-miles"
-    $arguments += ([string]$categoryConfig.entityCollapsing.maximumGapMiles)
-    foreach ($collapseCategory in $categoryConfig.entityCollapsing.eligibleCategories) {
-        $arguments += "--collapse-category"
-        $arguments += ([string]$collapseCategory)
-    }
-}
 
 Ensure-ParentDirectory -Path $allPointsOutputPath
 Ensure-ParentDirectory -Path $parkPointsOutputPath
@@ -191,34 +182,10 @@ try {
     Assert-PathExists -Path $featureOutputPath -FailureMessage "Extractor did not produce the feature JSONL."
     Assert-PathExists -Path $intermediateOriginalGeometryOutputPath -FailureMessage "Extractor did not produce the original geometry KML."
 
-    $matchingCollapsedEntityIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $matchingMemberNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    Get-Content $featureOutputPath |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-        ForEach-Object { $_ | ConvertFrom-Json } |
-        Where-Object {
-            $_.GeometryType -eq "collapsed-component" -and (
-                $_.Name -like "*$ParkName*" -or
-                ($_.SearchNames | Where-Object { $_ -like "*$ParkName*" } | Select-Object -First 1) -or
-                ($_.MemberNames | Where-Object { $_ -like "*$ParkName*" } | Select-Object -First 1)
-            )
-        } |
-        ForEach-Object {
-            if (-not [string]::IsNullOrWhiteSpace($_.CollapsedEntityId)) {
-                [void]$matchingCollapsedEntityIds.Add([string]$_.CollapsedEntityId)
-            }
-            foreach ($memberName in $_.MemberNames) {
-                if (-not [string]::IsNullOrWhiteSpace($memberName)) {
-                    [void]$matchingMemberNames.Add([string]$memberName)
-                }
-            }
-        }
-
     $matchingPoints = @(Get-Content $parkPointsOutputPath |
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
         ForEach-Object { $_ | ConvertFrom-Json } |
         Where-Object {
-            ($_.CollapsedEntityId -and $matchingCollapsedEntityIds.Contains([string]$_.CollapsedEntityId)) -or
             $_.Name -like "*$ParkName*" -or
             $_.Query -like "*$ParkName*" -or
             ($_.SearchNames | Where-Object { $_ -like "*$ParkName*" } | Select-Object -First 1)
@@ -274,7 +241,7 @@ try {
     foreach ($placemark in $placemarks) {
         $nameNode = $placemark.SelectSingleNode("./kml:name", $namespaceManager)
         $placemarkName = if ($nameNode) { [string]$nameNode.InnerText } else { "" }
-        if (-not $matchingMemberNames.Contains($placemarkName)) {
+        if ($placemarkName -notlike "*$ParkName*") {
             [void]$placemark.ParentNode.RemoveChild($placemark)
         }
     }
